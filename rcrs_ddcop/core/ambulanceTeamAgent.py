@@ -9,10 +9,16 @@ class AmbulanceTeamAgent(Agent):
     def __init__(self, pre):
         Agent.__init__(self, pre)
         self.name = 'AmbulanceTeamAgent'
-        self.bdi_agent = BDIAgent(self)
+        self.bdi_agent = None
     
     def precompute(self):
         self.Log.info('precompute finished')
+
+    def post_connect(self):
+        super(AmbulanceTeamAgent, self).post_connect()
+
+        # create BDI agent after RCRS agent is setup
+        self.bdi_agent = BDIAgent(self)
 
     def get_requested_entities(self):
         return [URN.Entity.AMBULANCE_TEAM]

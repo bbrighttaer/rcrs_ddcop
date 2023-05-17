@@ -48,6 +48,7 @@ class AgentPseudoComm(object):
                 credentials=pika.credentials.PlainCredentials(PIKA_USERNAME, PIKA_PASSWORD)
             ))
         self.channel = self.client.channel()
+        self.channel.exchange_declare(exchange=COMM_EXCHANGE, exchange_type='topic')
         self.queue = f'queue-{self.agent.agent_id}'
         self.channel.queue_declare(self.queue, exclusive=False)
 

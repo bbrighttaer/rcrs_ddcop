@@ -1,7 +1,6 @@
 import random
 
 from rcrs_ddcop.algorithms.graph import DynaGraph
-from rcrs_ddcop.core.bdi_agent import BDIAgent
 
 
 class DCOP:
@@ -11,7 +10,7 @@ class DCOP:
     traversing_order = None
     name = 'dcop-base'
 
-    def __init__(self, agent: BDIAgent):
+    def __init__(self, agent):
         self.log = agent.log
         self.agent = agent
         self.graph = self.agent.graph

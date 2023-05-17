@@ -2,9 +2,7 @@ import enum
 import random
 import time
 
-from rcrs_ddcop.algorithms.graph import DynaGraph, get_agent_order
-from rcrs_ddcop.core.bdi_agent import BDIAgent
-
+from rcrs_ddcop.algorithms.graph import DynaGraph
 
 MAX_OUT_DEGREE = 3
 
@@ -19,7 +17,7 @@ class DIGCA(DynaGraph):
     Implementation of the Dynamic Interaction Graph Construction algorithm
     """
 
-    def __init__(self,  agent: BDIAgent):
+    def __init__(self,  agent):
         super(DIGCA, self).__init__(agent)
         self._has_sent_parent_available = False
         self.pinged_list_dict = {}
@@ -76,7 +74,7 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received announce: {message}')
         sender = message['payload']['agent_id']
 
-        if self.state == State.INACTIVE and get_agent_order(self.agent.agent_id) < get_agent_order(sender):
+        if self.state == State.INACTIVE and self.agent.agent_id < sender:
             self.comm.send_announce_response(sender)
 
     def receive_announce_response(self, message):

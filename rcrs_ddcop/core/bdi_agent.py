@@ -13,11 +13,12 @@ class BDIAgent(object):
     def __init__(self, agent: Agent):
         self.belief = agent.world_model
         self.log = agent.Log
+        self.agent_id = agent.agent_id
+        self.domain = []
+
         self.comm = AgentPseudoComm(agent, self.handle_message)
         self.graph = DIGCA(self)
         self.dcop = DPOP(self)
-        self.agent_id = agent.agent_id
-        self.domain = []
 
     @property
     def optimization_op(self):

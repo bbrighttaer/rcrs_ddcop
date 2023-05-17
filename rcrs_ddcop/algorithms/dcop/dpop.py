@@ -1,7 +1,6 @@
 import numpy as np
 
 from rcrs_ddcop.algorithms.dcop import DCOP
-from rcrs_ddcop.core.bdi_agent import BDIAgent
 
 
 class DPOP(DCOP):
@@ -11,7 +10,7 @@ class DPOP(DCOP):
     traversing_order = 'bottom-up'
     name = 'dpop'
 
-    def __init__(self, agent: BDIAgent):
+    def __init__(self, agent):
         super(DPOP, self).__init__(agent)
         self._util_msg_requested = False
         self.neighbor_domains = {}

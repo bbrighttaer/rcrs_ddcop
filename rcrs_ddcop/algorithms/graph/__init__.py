@@ -1,4 +1,3 @@
-from rcrs_ddcop.core.bdi_agent import BDIAgent
 
 
 def get_agent_order(agent_id):
@@ -10,7 +9,7 @@ class DynaGraph:
     Base class for dynamic graph algorithms
     """
 
-    def __init__(self, agent: BDIAgent):
+    def __init__(self, agent):
         self.agent = agent
         self.comm = agent.comm
         self.parent = None
@@ -46,11 +45,6 @@ class DynaGraph:
         self.log.debug(f'Starting DCOP...')
         self.agent.execute_dcop()
         self.exec_started = True
-
-    def send_to_agent(self, body, to):
-        self.channel.basic_publish(exchange=messaging.COMM_EXCHANGE,
-                                   routing_key=f'{messaging.AGENTS_CHANNEL}.{to}',
-                                   body=body)
 
     def report_connection(self, parent, child, constraint):
         # self.channel.basic_publish(exchange=messaging.COMM_EXCHANGE,
