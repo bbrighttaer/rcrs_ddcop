@@ -1,7 +1,11 @@
+import datetime
+import threading
+
 from rcrs_core.agents.agent import Agent
 
 from rcrs_ddcop.algorithms.dcop.dpop import DPOP
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
+from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
 
 
@@ -11,22 +15,48 @@ class BDIAgent(object):
     """
 
     def __init__(self, agent: Agent):
+        self.latest_event_timestamp = None
         self.belief = agent.world_model
         self.log = agent.Log
-        self.agent_id = agent.agent_id
-        self.domain = []
+        self.agent_id = agent.agent_id.get_value()
+        self._domain = []
+        self._agents_in_comm_range = []
+        self._new_agents = []
+        self._value = None
+        self._terminate = False
+        self._neighbor_domains = {}
 
+        # manages when control is returned to agent entity
+        self._value_selection_evt = threading.Event()
+
+        # create instances of main components
         self.comm = AgentPseudoComm(agent, self.handle_message)
         self.graph = DIGCA(self)
-        self.dcop = DPOP(self)
+        self.dcop = DPOP(self, self.on_value_selected)
+
+    @property
+    def domain(self):
+        return self._domain
+
+    @domain.setter
+    def domain(self, v):
+        self._domain = v
+
+    @property
+    def agents_in_comm_range(self):
+        return self._agents_in_comm_range
+
+    @agents_in_comm_range.setter
+    def agents_in_comm_range(self, v):
+        self._agents_in_comm_range = v
+
+    @property
+    def new_agents(self):
+        return self._new_agents
 
     @property
     def optimization_op(self):
         return 'max'
-
-    @property
-    def agents_in_range(self):
-        return []
 
     @property
     def graph_traversing_order(self):
@@ -34,7 +64,29 @@ class BDIAgent(object):
 
     @property
     def value(self):
-        return None
+        return self._value
+
+    @value.setter
+    def value(self, v):
+        self._value = v
+
+    @property
+    def neighbor_domains(self):
+        return self._neighbor_domains
+
+    def add_neighbor_domain(self, k, v):
+        self._neighbor_domains[k] = v
+
+    def remove_neighbor_domain(self, k):
+        if k in self._neighbor_domains:
+            del self._neighbor_domains[k]
+
+    def on_value_selected(self, value, *args, **kwargs):
+        self._value = value
+        self._value_selection_evt.set()
+
+    def execute_dcop(self):
+        self.dcop.execute_dcop()
 
     def objective(self, *args, **kwargs):
         """
@@ -43,12 +95,46 @@ class BDIAgent(object):
         """
         return 0
 
+    def share_information(self, **kwargs):
+        """
+        Shares information with neighbors
+        """
+        ...
+
     def deliberate(self):
         """
         Determines what the agent wants to do in the environment - its intention.
         :return:
         """
-        ...
+        # set time step or cycle properties
+        self.latest_event_timestamp = datetime.datetime.now().timestamp()
+        self._new_agents = set(self.agents_in_comm_range) - set(self.graph.neighbors)
+        self._value = None
+        self._value_selection_evt.clear()
+
+        # remove agents that are out-of-range
+        agents_to_remove = set(self.graph.neighbors) - set(self.agents_in_comm_range)
+        if agents_to_remove:
+            for _agent in agents_to_remove:
+                self.graph.remove_agent(_agent)
+
+        self.log.info(
+            f'parent={self.graph.parent}, '
+            f'children={self.graph.children}, '
+            f'agents-in-range={self.agents_in_comm_range}'
+        )
+
+        # clear time step buffers
+        self.dcop.on_time_step_changed()
+        self.graph.on_time_step_changed()
+
+        # if no neighborhood change
+        if not self.graph.has_potential_neighbor():
+            self.graph.start_dcop()
+
+        # wait for value section or timeout
+        self._value_selection_evt.wait()
+        return self._value
 
     def learn(self):
         ...
@@ -57,4 +143,50 @@ class BDIAgent(object):
         ...
 
     def handle_message(self, message):
-        ...
+        # reject outdated messages (every message has a timestamp)
+        if self.latest_event_timestamp and message['timestamp'] < self.latest_event_timestamp:
+            return
+
+        match message['type']:
+            # DIGCA message handling
+            case messaging.DIGCAMsgTypes.ANNOUNCE:
+                self.graph.receive_announce(message)
+
+            case messaging.DIGCAMsgTypes.ANNOUNCE_RESPONSE:
+                self.graph.receive_announce_response(message)
+
+            case messaging.DIGCAMsgTypes.ANNOUNCE_RESPONSE_IGNORED:
+                self.graph.receive_announce_response_ignored(message)
+
+            case messaging.DIGCAMsgTypes.ADD_ME:
+                self.graph.receive_add_me(message)
+
+            case messaging.DIGCAMsgTypes.CHILD_ADDED:
+                self.graph.receive_child_added(message)
+
+            case messaging.DIGCAMsgTypes.PARENT_ASSIGNED:
+                self.graph.receive_parent_assigned(message)
+
+            case messaging.DIGCAMsgTypes.ALREADY_ACTIVE:
+                self.graph.receive_already_active(message)
+
+            # DPOP message handling
+            case messaging.DPOPMsgTypes.VALUE_MESSAGE:
+                self.dcop.receive_value_message(message)
+
+            case messaging.DPOPMsgTypes.UTIL_MESSAGE:
+                self.dcop.receive_util_message(message)
+
+            case messaging.DPOPMsgTypes.REQUEST_UTIL_MESSAGE:
+                self.dcop.receive_util_message_request(message)
+
+            case _:
+                self.log.info(f'Could not handle received payload: {message}')
+
+    def __call__(self, *args, **kwargs):
+        self.log.info(f'Initializing agent {self.agent_id}')
+        while not self._terminate:
+            self.comm.listen_to_network()
+            self.graph.connect()
+            self.dcop.resolve_value()
+

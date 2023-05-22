@@ -25,22 +25,30 @@ class DIGCA(DynaGraph):
         self.announceResponseList = []
         self._ignored_ann_msgs = {}
         self._parent_already_assigned_msgs = {}
-        self._timeout_delay_in_seconds = .5
+        self._timeout_delay_in_seconds = .9
         self._timeout_delay_start = None
+        self._sent_announce_msg_list = []
 
     def on_time_step_changed(self):
         self._ignored_ann_msgs.clear()
         self._parent_already_assigned_msgs.clear()
         self._has_sent_parent_available = False
         self._timeout_delay_start = time.time()
+        self._sent_announce_msg_list.clear()
         self.exec_started = False
 
     def connect(self):
-        if not self.parent and self.has_potential_parent() and self.state == State.INACTIVE:
+        new_agents = self.agent.new_agents
+        broadcast_list = set(new_agents) - set(self._sent_announce_msg_list)
+        if broadcast_list \
+                and not self.parent \
+                and self.has_potential_parent() \
+                and self.state == State.INACTIVE:
             self.log.debug(f'Publishing Announce message...')
 
             # publish Announce message
-            self.comm.broadcast_announce_message(self.agent.agents_in_range)
+            self.comm.broadcast_announce_message(new_agents)
+            self._sent_announce_msg_list.extend(new_agents)
 
             # wait to receive responses
             self.comm.listen_to_network()
@@ -54,7 +62,7 @@ class DIGCA(DynaGraph):
 
             if selected_agent is not None:
                 self.log.debug(f'Selected agent for AddMe: {selected_agent}')
-                self.comm.send_add_me_message(selected_agent)
+                self.comm.send_add_me_message(selected_agent, domain=self.agent.domain)
                 self.state = State.ACTIVE
 
             # send announce response ignored messages
@@ -64,9 +72,13 @@ class DIGCA(DynaGraph):
 
             self.announceResponseList.clear()
 
-        elif not self.exec_started \
+        # connection
+        # period timeout check
+        elif not self.agent.value \
+                and not self.exec_started \
                 and self._timeout_delay_start \
                 and time.time() - self._timeout_delay_start > self._timeout_delay_in_seconds:
+            self.log.warning('Starting DCOP as a result of decision process timeout.')
             self.start_dcop()
             self._timeout_delay_start = None
 
@@ -91,7 +103,8 @@ class DIGCA(DynaGraph):
 
         if self.state == State.INACTIVE and len(self.children) < MAX_OUT_DEGREE:
             self.children.append(sender)
-            self.comm.send_child_added_message(sender)
+            self.agent.add_neighbor_domain(sender, message['payload']['domain'])
+            self.comm.send_child_added_message(sender, domain=self.agent.domain)
             self.log.info(f'Added agent {sender} to children: {self.children}')
 
             # update current graph
@@ -118,6 +131,7 @@ class DIGCA(DynaGraph):
         if self.state == State.ACTIVE and not self.parent:
             self.state = State.INACTIVE
             self.parent = sender
+            self.agent.add_neighbor_domain(sender, message['payload']['domain'])
             self.comm.send_parent_assigned_message(sender)
             self.log.info(f'Set parent node to agent {sender}')
 
@@ -172,14 +186,14 @@ class DIGCA(DynaGraph):
     def _get_potential_children(self):
         agents = []
         for _agt in set(self.agent.new_agents) - set(self.neighbors):
-            if int(_agt.replace('a', '')) > int(self.agent.agent_id.replace('a', '')):
+            if _agt > self.agent.agent_id:
                 agents.append(_agt)
 
         return agents
 
     def has_potential_parent(self):
         for _agt in set(self.agent.new_agents) - set(self.neighbors):
-            if int(_agt.replace('a', '')) < int(self.agent.agent_id.replace('a', '')):
+            if _agt < self.agent.agent_id:
                 return True
 
         return False
@@ -189,3 +203,14 @@ class DIGCA(DynaGraph):
 
     def has_potential_neighbor(self):
         return self.has_potential_child() or (not self.parent and self.has_potential_parent())
+
+    def remove_agent(self, agent):
+        if self.parent == agent:
+            self.state = State.INACTIVE
+            self.parent = None
+        else:
+            self.children.remove(agent)
+
+        self.agent.remove_neighbor_domain(agent)
+
+        self.report_agent_disconnection(agent)

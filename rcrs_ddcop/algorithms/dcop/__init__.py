@@ -1,4 +1,5 @@
 import random
+from typing import Callable
 
 from rcrs_ddcop.algorithms.graph import DynaGraph
 
@@ -10,13 +11,17 @@ class DCOP:
     traversing_order = None
     name = 'dcop-base'
 
-    def __init__(self, agent):
+    def __init__(self, agent, on_value_selected: Callable):
         self.log = agent.log
         self.agent = agent
         self.graph = self.agent.graph
         self.comm = agent.comm
         self.value = None
-        self.domain = agent.domain
+        self._on_value_selected_cb = on_value_selected
+
+    @property
+    def domain(self):
+        return self.agent.domain
 
     def send_cpa_to_dashboard(self):
         ...
@@ -34,7 +39,7 @@ class DCOP:
         self.value_selection(self.value)
 
     def value_selection(self, val):
-        ...
+        self._on_value_selected_cb(val)
 
     # ---------------- Algorithm specific methods ----------------------- #
 

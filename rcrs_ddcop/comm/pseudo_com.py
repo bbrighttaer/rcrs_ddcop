@@ -38,7 +38,7 @@ class AgentPseudoComm(object):
     """
 
     def __init__(self, agent: Agent, message_handler: Callable):
-        self.agent = agent
+        self.agent_id = agent.agent_id.get_value()
         self.Log = agent.Log
         self.client = pika.BlockingConnection(
             pika.ConnectionParameters(
@@ -49,14 +49,14 @@ class AgentPseudoComm(object):
             ))
         self.channel = self.client.channel()
         self.channel.exchange_declare(exchange=COMM_EXCHANGE, exchange_type='topic')
-        self.queue = f'queue-{self.agent.agent_id}'
+        self.queue = f'queue-{self.agent_id}'
         self.channel.queue_declare(self.queue, exclusive=False)
 
         # subscribe to topics
         self.channel.queue_bind(
             exchange=COMM_EXCHANGE,
             queue=self.queue,
-            routing_key=f'{AGENTS_CHANNEL}.{self.agent.agent_id}.#'  # dedicated topic
+            routing_key=f'{AGENTS_CHANNEL}.{self.agent_id}.#'  # dedicated topic
         )
         self.channel.queue_bind(
             exchange=COMM_EXCHANGE,
@@ -67,12 +67,12 @@ class AgentPseudoComm(object):
         # bind callback function for receiving messages
         self.channel.basic_consume(
             queue=self.queue,
-            on_message_callback=create_on_message(self.agent.agent_id, message_handler),
+            on_message_callback=create_on_message(self.agent_id, message_handler),
             auto_ack=True
         )
 
     def listen_to_network(self):
-        self.client.sleep(.1)
+        self.client.sleep(.01)
 
     def _send_to_agent(self, agent_id, body):
         self.channel.basic_publish(
@@ -81,20 +81,21 @@ class AgentPseudoComm(object):
             body=body,
         )
 
-    def broadcast_announce_message(self, neighboring_agents: List[Agent]):
+    def broadcast_announce_message(self, neighboring_agents: List[int]):
         for agt in neighboring_agents:
             self._send_to_agent(
-                agent_id=agt.agent_id,
+                agent_id=agt,
                 body=messaging.create_announce_message({
-                    'agent_id': self.agent.agent_id,
+                    'agent_id': self.agent_id,
                 })
             )
 
-    def send_add_me_message(self, agent_id):
+    def send_add_me_message(self, agent_id, **kwargs):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_add_me_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
+                **kwargs,
             })
         )
 
@@ -102,7 +103,7 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_announce_response_ignored_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
             })
         )
 
@@ -110,15 +111,16 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_announce_response_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
             })
         )
 
-    def send_child_added_message(self, agent_id):
+    def send_child_added_message(self, agent_id, **kwargs):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_child_added_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
+                **kwargs,
             })
         )
 
@@ -126,7 +128,7 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_already_active_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
             })
         )
 
@@ -134,7 +136,7 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_parent_assigned_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
             })
         )
 
@@ -142,7 +144,7 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_parent_already_assigned_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
             })
         )
 
@@ -150,7 +152,7 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_util_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
                 'util': util,
             })
         )
@@ -159,7 +161,7 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_value_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
                 'value': value,
             })
         )
@@ -168,7 +170,7 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_request_util_message({
-                'agent_id': self.agent.agent_id,
+                'agent_id': self.agent_id,
             })
         )
 

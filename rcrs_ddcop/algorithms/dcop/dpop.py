@@ -1,3 +1,5 @@
+from typing import Callable
+
 import numpy as np
 
 from rcrs_ddcop.algorithms.dcop import DCOP
@@ -10,10 +12,10 @@ class DPOP(DCOP):
     traversing_order = 'bottom-up'
     name = 'dpop'
 
-    def __init__(self, agent):
-        super(DPOP, self).__init__(agent)
+    def __init__(self, agent, on_value_selected: Callable):
+        super(DPOP, self).__init__(agent, on_value_selected)
         self._util_msg_requested = False
-        self.neighbor_domains = {}
+        self.neighbor_domains = agent.neighbor_domains
         self.util_messages = {}
         self.X_ij = None
         self.util_received = False
@@ -38,10 +40,11 @@ class DPOP(DCOP):
             try:
                 c_util_sum += np.array(c_util)
             except Exception as e:
-                self.log.error(str(e))
+                self.log.error(f'computation error: {str(e)}')
 
         # parent
         if self.graph.parent:
+            ds = len(self.domain)
             p_domain = self.neighbor_domains[self.graph.parent]
 
             self.X_ij = np.zeros((len(self.agent.domain), len(p_domain)))
@@ -49,10 +52,10 @@ class DPOP(DCOP):
             for i in range(len(self.agent.domain)):
                 for j in range(len(p_domain)):
                     agent_values = {
-                        self.graph.parent: p_domain[j],
-                        self.agent.agent_id: self.agent.domain[i],
+                        str(self.graph.parent): p_domain[j],
+                        str(self.agent.agent_id): self.agent.domain[i],
                     }
-                    self.X_ij[i, j] = self.agent.objective(*agent_values)
+                    self.X_ij[i, j] = self.agent.objective(**agent_values)
 
             self.X_ij = self.X_ij + c_util_sum.reshape(-1, 1)
             x_j = self.optimization_op(self.X_ij, axis=0)
@@ -62,7 +65,6 @@ class DPOP(DCOP):
             # parent-level projection
             self.cost = float(self.optimization_op(c_util_sum))
             self.value = self.domain[int(self.arg_optimization_op(c_util_sum))]
-            self.cpa[f'agent-{self.agent.agent_id}'] = self.value
 
             self.log.info(f'Cost is {self.cost}, value = {self.value}')
 
@@ -129,7 +131,7 @@ class DPOP(DCOP):
             self.log.debug('Added UTIL message')
             self.util_messages[sender] = util
 
-        if set(self.graph.get_connected_agents()) == set(self.agent.agents_in_range) and \
+        if set(self.graph.get_connected_agents()) == set(self.agent.agents_in_comm_range) and \
                 set(self.util_messages.keys()) == set(self.graph.children):
             self.util_received = True
 
@@ -140,18 +142,14 @@ class DPOP(DCOP):
         self.log.info(f'Received VALUE message: {payload}')
         data = payload['payload']
         sender = data['agent_id']
-        value = data['value']
+        parent_value = data['value']
 
         # determine own value from parent's value
         if self.graph.is_parent(sender) and self.X_ij is not None:
-            parent_cpa = value['cpa']
-            parent_value = parent_cpa[f'agent-{sender}']
-            self.cpa = parent_cpa
             j = self.neighbor_domains[sender].index(parent_value)
             x_i = self.X_ij[:, j].reshape(-1, )
             self.cost = float(self.optimization_op(x_i))
             self.value = self.domain[int(self.arg_optimization_op(x_i))]
-            self.cpa[f'agent-{self.agent.agent_id}'] = self.value
 
             self.log.info(f'Cost is {self.cost}, value = {self.value}')
 
