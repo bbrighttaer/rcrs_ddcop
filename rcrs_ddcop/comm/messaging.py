@@ -7,6 +7,7 @@ from strenum import StrEnum
 
 class AgentMsgTypes(StrEnum):
     TEST = auto()
+    SHARED_INFO = auto()
 
 
 class DIGCAMsgTypes(StrEnum):
@@ -106,3 +107,7 @@ def create_cost_message(data):
 
 def create_execution_request_message(data):
     return _create_msg(CoCoAMsgTypes.EXECUTION_REQUEST, data)
+
+
+def create_shared_info_message(data):
+    return _create_msg(AgentMsgTypes.SHARED_INFO, data)

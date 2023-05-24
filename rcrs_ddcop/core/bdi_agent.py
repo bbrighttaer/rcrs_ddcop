@@ -23,6 +23,7 @@ class BDIAgent(object):
         self._agents_in_comm_range = []
         self._new_agents = []
         self._value = None
+        self._previous_value = None
         self._terminate = False
         self._neighbor_domains = {}
 
@@ -36,7 +37,7 @@ class BDIAgent(object):
 
     @property
     def domain(self):
-        return self._domain
+        return [-1, -2, -3]
 
     @domain.setter
     def domain(self, v):
@@ -88,6 +89,10 @@ class BDIAgent(object):
     def execute_dcop(self):
         self.dcop.execute_dcop()
 
+    def clear_current_value(self):
+        self._previous_value = self._value
+        self._value = None
+
     def objective(self, *args, **kwargs):
         """
         The desire is to optimize the objective functions in its neighborhood.
@@ -99,7 +104,14 @@ class BDIAgent(object):
         """
         Shares information with neighbors
         """
-        ...
+        self.comm.share_information_with_neighbors(
+            neighbor_ids=self.graph.neighbors,
+            data={
+                'agent_id': self.agent_id,
+                'domain': self._domain,
+                'previous_action': self._previous_value,
+            },
+        )
 
     def deliberate(self):
         """
@@ -109,8 +121,10 @@ class BDIAgent(object):
         # set time step or cycle properties
         self.latest_event_timestamp = datetime.datetime.now().timestamp()
         self._new_agents = set(self.agents_in_comm_range) - set(self.graph.neighbors)
-        self._value = None
         self._value_selection_evt.clear()
+
+        # clear currently assigned value
+        self.clear_current_value()
 
         # remove agents that are out-of-range
         agents_to_remove = set(self.graph.neighbors) - set(self.agents_in_comm_range)
@@ -128,9 +142,12 @@ class BDIAgent(object):
         self.dcop.on_time_step_changed()
         self.graph.on_time_step_changed()
 
+        # share information with neighbors
+        self.share_information()
+
         # if no neighborhood change
         if not self.graph.has_potential_neighbor():
-            self.graph.start_dcop()
+            self.comm.threadsafe_execution(self.graph.start_dcop)
 
         # wait for value section or timeout
         self._value_selection_evt.wait()
@@ -180,8 +197,18 @@ class BDIAgent(object):
             case messaging.DPOPMsgTypes.REQUEST_UTIL_MESSAGE:
                 self.dcop.receive_util_message_request(message)
 
+            # Other agent communication
+            case messaging.AgentMsgTypes.SHARED_INFO:
+                self.receive_shared_info(message)
+
             case _:
                 self.log.info(f'Could not handle received payload: {message}')
+
+    def receive_shared_info(self, message: dict):
+        self.log.info(f'Received shared message: {message}')
+        data = message['payload']
+        sender = data['agent_id']
+        self.add_neighbor_domain(sender, data['domain'])
 
     def __call__(self, *args, **kwargs):
         self.log.info(f'Initializing agent {self.agent_id}')

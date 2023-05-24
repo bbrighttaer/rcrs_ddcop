@@ -44,7 +44,6 @@ class DPOP(DCOP):
 
         # parent
         if self.graph.parent:
-            ds = len(self.domain)
             p_domain = self.neighbor_domains[self.graph.parent]
 
             self.X_ij = np.zeros((len(self.agent.domain), len(p_domain)))

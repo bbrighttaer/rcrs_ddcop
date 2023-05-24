@@ -1,3 +1,4 @@
+import random
 import threading
 from typing import List
 
@@ -7,8 +8,10 @@ from rcrs_core.constants import kernel_constants
 from rcrs_core.entities.ambulanceTeam import AmbulanceTeamEntity
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
+from rcrs_core.entities.refuge import Refuge
 from rcrs_core.worldmodel.entityID import EntityID
 
+from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
 
 SEARCH_ACTION = -1
@@ -21,6 +24,7 @@ class AmbulanceTeamAgent(Agent):
         Agent.__init__(self, pre)
         self.name = 'AmbulanceTeamAgent'
         self.bdi_agent = None
+        self.search = None
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -28,6 +32,7 @@ class AmbulanceTeamAgent(Agent):
     def post_connect(self):
         super(AmbulanceTeamAgent, self).post_connect()
         threading.Thread(target=self._start_bdi_agent, daemon=True).start()
+        self.search = BFSSearch(self.world_model)
 
     def _start_bdi_agent(self):
         # create BDI agent after RCRS agent is setup
@@ -59,6 +64,13 @@ class AmbulanceTeamAgent(Agent):
                 civilians.append(entity.entity_id.get_value())
         return civilians
 
+    def get_refuges(self, entities: List[Entity]):
+        refuges = []
+        for entity in entities:
+            if isinstance(entity, Refuge):
+                refuges.append(entity.entity_id)
+        return refuges
+
     def think(self, time_step, change_set, heard):
         self.Log.info(f'Time step {time_step}')
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
@@ -75,27 +87,31 @@ class AmbulanceTeamAgent(Agent):
         civilians = self.get_civilians(change_set_entities)
         self.bdi_agent.domain = [SEARCH_ACTION, UNLOAD_CIVILIAN] + civilians
 
-        # information sharing
-        self.bdi_agent.share_information()
+        refuges = self.get_refuges(change_set_entities)
+        path = self.search.breadth_first_search(self.location().get_id(), refuges)
+        self.send_move(time_step, path)
 
         # execute thinking process
-        action = self.bdi_agent.deliberate()
-        action_lbl = {
-            SEARCH_ACTION: 'search',
-            UNLOAD_CIVILIAN: 'unload',
-        }.get(action, f'rescue civilian {action}')
-        self.Log.debug(f'Selected action: {action_lbl}')
-
-        # send action to environment
-        if action is None or action == SEARCH_ACTION:
-            if action is None:
-                self.Log.warning(f'No action selected, selecting search action instead')
-            my_path = self.random_walk()
-            self.send_move(time_step, my_path)
-        elif action == UNLOAD_CIVILIAN:
-            self.send_unload(time_step)
-        else:
-            self.send_load(time_step, EntityID(action))
+        # action = self.bdi_agent.deliberate()
+        # action_lbl = {
+        #     SEARCH_ACTION: 'search',
+        #     UNLOAD_CIVILIAN: 'unload',
+        #     NO_OP: 'no-op',
+        # }.get(action, f'rescue civilian {action}')
+        # self.Log.debug(f'Selected action: {action_lbl}')
+        #
+        # # send action to environment
+        # if action is None or action == SEARCH_ACTION:
+        #     if action is None:
+        #         self.Log.warning(f'No action selected, selecting search action instead')
+        #     my_path = self.random_walk()
+        #     self.send_move(time_step, my_path)
+        # elif action == NO_OP:
+        #     self.send_rest(time_step)
+        # elif action == UNLOAD_CIVILIAN:
+        #     self.send_unload(time_step)
+        # else:
+        #     self.send_load(time_step, EntityID(action))
 
         # self.send_load(time_step, target)
         # self.send_unload(time_step)
