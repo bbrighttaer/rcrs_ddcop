@@ -37,7 +37,7 @@ class BDIAgent(object):
 
     @property
     def domain(self):
-        return [-1, -2, -3]
+        return self._domain
 
     @domain.setter
     def domain(self, v):
