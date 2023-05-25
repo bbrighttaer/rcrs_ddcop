@@ -51,8 +51,8 @@ class DPOP(DCOP):
             for i in range(len(self.agent.domain)):
                 for j in range(len(p_domain)):
                     agent_values = {
-                        str(self.graph.parent): p_domain[j],
-                        str(self.agent.agent_id): self.agent.domain[i],
+                        self.graph.parent: p_domain[j],
+                        self.agent.agent_id: self.agent.domain[i],
                     }
                     self.X_ij[i, j] = self.agent.objective(**agent_values)
 

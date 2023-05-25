@@ -3,7 +3,6 @@ from typing import List
 
 from rcrs_core.entities.area import Area
 from rcrs_core.entities.building import Building
-from rcrs_core.entities.refuge import Refuge
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 

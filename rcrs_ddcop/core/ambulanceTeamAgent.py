@@ -1,7 +1,8 @@
-import random
+
 import threading
 from typing import List
 
+import numpy as np
 from rcrs_core.agents.agent import Agent
 from rcrs_core.connection import URN
 from rcrs_core.constants import kernel_constants
@@ -14,6 +15,10 @@ from rcrs_core.worldmodel.entityID import EntityID
 
 from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
+
+
+def distance(x1, y1, x2, y2):
+    return np.abs(x1 - x2) + np.abs(y1 - y2)
 
 
 class AmbulanceTeamAgent(Agent):
@@ -166,3 +171,40 @@ class AmbulanceTeamAgent(Agent):
         for entity in change_set_entities:
             if isinstance(entity, Building) and entity.entity_id in self.unexplored_buildings:
                 self.unexplored_buildings.pop(entity.entity_id)
+
+    def binary_constraint(self, agent_vals: dict):
+        score = 0
+        eps = 1e-10
+        switching_cost = 5
+        penalty = 2
+
+        selected_value = agent_vals[self.agent_id.get_value()]
+        civilian: Civilian = self.world_model.get_entity(EntityID(selected_value))
+
+        # get neighbor's selected value
+        neighbor_id = neighbor_value = None
+        for k, v in agent_vals.items():
+            if k != self.agent_id.get_value():
+                neighbor_id = k
+                neighbor_value = v
+                break
+
+        # fieryness unary constraint
+        location = self.world_model.get_entity(civilian.position.get_value())
+        if isinstance(location, Building):
+            score += -np.log(max(eps, location.get_fieryness()))
+
+        # buriedness unary constraint
+        score -= np.log(max(civilian.get_buriedness(), 1))
+
+        # distance unary constraint
+        score -= distance(*location.get_location(), *self.world_model.get_entity(self.agent_id).get_location()) / 100.
+
+        # switching cost
+        prev_val = self.bdi_agent.previous_value
+        score -= switching_cost if prev_val and selected_value != prev_val else 0
+
+        # coordination constraint
+        score -= penalty if selected_value == neighbor_value else 0
+
+        return score

@@ -26,6 +26,8 @@ class BDIAgent(object):
         self._previous_value = None
         self._terminate = False
         self._neighbor_domains = {}
+        self._neighbor_previous_values = {}
+        self._binary_constraint = agent.binary_constraint
 
         # manages when control is returned to agent entity
         self._value_selection_evt = threading.Event()
@@ -75,8 +77,15 @@ class BDIAgent(object):
     def neighbor_domains(self):
         return self._neighbor_domains
 
+    @property
+    def previous_value(self):
+        return self._previous_value
+
     def add_neighbor_domain(self, k, v):
         self._neighbor_domains[k] = v
+
+    def add_neighbor_previous_value(self, k, v):
+        self._neighbor_previous_values[k] = v
 
     def remove_neighbor_domain(self, k):
         if k in self._neighbor_domains:
@@ -98,7 +107,8 @@ class BDIAgent(object):
         The desire is to optimize the objective functions in its neighborhood.
         :return:
         """
-        return 0
+        score = self._binary_constraint(kwargs)
+        return score
 
     def share_information(self, **kwargs):
         """
@@ -209,6 +219,7 @@ class BDIAgent(object):
         data = message['payload']
         sender = data['agent_id']
         self.add_neighbor_domain(sender, data['domain'])
+        self.add_neighbor_previous_value(sender, data['previous_value'])
 
     def __call__(self, *args, **kwargs):
         self.log.info(f'Initializing agent {self.agent_id}')
