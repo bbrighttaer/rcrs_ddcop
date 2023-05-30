@@ -102,12 +102,12 @@ class BDIAgent(object):
         self._previous_value = self._value
         self._value = None
 
-    def objective(self, *args, **kwargs):
+    def objective(self, agent_vals: dict):
         """
         The desire is to optimize the objective functions in its neighborhood.
         :return:
         """
-        score = self._binary_constraint(kwargs)
+        score = self._binary_constraint(agent_vals)
         return score
 
     def share_information(self, **kwargs):
@@ -119,7 +119,7 @@ class BDIAgent(object):
             data={
                 'agent_id': self.agent_id,
                 'domain': self._domain,
-                'previous_action': self._previous_value,
+                'previous_value': self._previous_value,
             },
         )
 
@@ -151,9 +151,6 @@ class BDIAgent(object):
         # clear time step buffers
         self.dcop.on_time_step_changed()
         self.graph.on_time_step_changed()
-
-        # share information with neighbors
-        self.share_information()
 
         # if no neighborhood change
         if not self.graph.has_potential_neighbor():

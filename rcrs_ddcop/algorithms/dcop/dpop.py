@@ -54,7 +54,7 @@ class DPOP(DCOP):
                         self.graph.parent: p_domain[j],
                         self.agent.agent_id: self.agent.domain[i],
                     }
-                    self.X_ij[i, j] = self.agent.objective(**agent_values)
+                    self.X_ij[i, j] = self.agent.objective(agent_values)
 
             self.X_ij = self.X_ij + c_util_sum.reshape(-1, 1)
             x_j = self.optimization_op(self.X_ij, axis=0)

@@ -175,7 +175,7 @@ class CoCoA(DCOP):
                     sender: value1,
                     self.agent.agent_id: value2,
                 }
-                cost = self.agent.objective(*agent_values)
+                cost = self.agent.objective(agent_values)
                 if cost < min_cost:
                     entry = (value1, value2, cost)
                     min_cost = cost
