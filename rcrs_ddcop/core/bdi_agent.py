@@ -7,6 +7,7 @@ from rcrs_ddcop.algorithms.dcop.dpop import DPOP
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
+from rcrs_ddcop.core.experience import Experience, ExperienceBuffer
 
 
 class BDIAgent(object):
@@ -28,6 +29,7 @@ class BDIAgent(object):
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
         self._binary_constraint = agent.binary_constraint
+        self._experience_buffer: ExperienceBuffer = agent.experience_buffer
 
         # manages when control is returned to agent entity
         self._value_selection_evt = threading.Event()
@@ -120,6 +122,7 @@ class BDIAgent(object):
                 'agent_id': self.agent_id,
                 'domain': self._domain,
                 'previous_value': self._previous_value,
+                **kwargs,
             },
         )
 
@@ -158,7 +161,7 @@ class BDIAgent(object):
 
         # wait for value section or timeout
         self._value_selection_evt.wait()
-        return self._value
+        return self._value, self.dcop.cost
 
     def learn(self):
         ...
@@ -212,11 +215,25 @@ class BDIAgent(object):
                 self.log.info(f'Could not handle received payload: {message}')
 
     def receive_shared_info(self, message: dict):
-        self.log.info(f'Received shared message: {message}')
+        self.log.info(f'Received shared message')
         data = message['payload']
         sender = data['agent_id']
+        shared_exp = data.get('shared_exp')
         self.add_neighbor_domain(sender, data['domain'])
         self.add_neighbor_previous_value(sender, data['previous_value'])
+
+        if shared_exp:
+            time_step = shared_exp['time_step']
+            exp = Experience(
+                state=shared_exp['exp']['state'],
+                action=shared_exp['exp']['action'],
+                utility=shared_exp['exp']['utility'],
+                next_state=shared_exp['exp']['next_state'],
+            )
+            self._experience_buffer.add_ts_experience(
+                time_step=time_step,
+                exp=exp,
+            )
 
     def __call__(self, *args, **kwargs):
         self.log.info(f'Initializing agent {self.agent_id}')

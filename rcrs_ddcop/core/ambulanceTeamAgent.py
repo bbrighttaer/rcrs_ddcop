@@ -1,4 +1,3 @@
-
 import threading
 from typing import List
 
@@ -15,13 +14,14 @@ from rcrs_core.worldmodel.entityID import EntityID
 
 from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
-
+from rcrs_ddcop.core.enums import Fieryness
+from rcrs_ddcop.core.experience import ExperienceBuffer, Experience
 
 SEARCH_ACTION = -1
 
 
 def distance(x1, y1, x2, y2):
-    return np.abs(x1 - x2) + np.abs(y1 - y2)
+    return float(np.abs(x1 - x2) + np.abs(y1 - y2))
 
 
 class AmbulanceTeamAgent(Agent):
@@ -35,6 +35,8 @@ class AmbulanceTeamAgent(Agent):
         self._previous_position = (0, 0)
         self._estimated_tau = 0
         self._seen_civilians = False
+        self._cached_exp = None
+        self.experience_buffer = ExperienceBuffer()
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -81,12 +83,64 @@ class AmbulanceTeamAgent(Agent):
                 civilians.append(entity)
         return civilians
 
+    def get_buildings(self, entities: List[Entity]) -> List[Building]:
+        buildings = []
+        for entity in entities:
+            if isinstance(entity, Building):
+                buildings.append(entity)
+        return buildings
+
     def get_refuges(self, entities: List[Entity]) -> List[Refuge]:
         refuges = []
         for entity in entities:
             if isinstance(entity, Refuge):
                 refuges.append(entity)
         return refuges
+
+    def _get_unburnt_neighbors(self, building: Building):
+        unburnt = []
+        for n in building.get_neighbours():
+            entity = self.world_model.get_entity(n)
+            if entity and entity.get_urn() == Building.urn and entity.get_fieryness() < Fieryness.BURNT_OUT:
+                unburnt.append(entity)
+        return unburnt
+
+    def construct_state(self, entities: List[Entity]):
+        buildings = self.get_buildings(entities)
+        civilians = self.get_civilians(entities)
+        me = self.me()
+
+        # this agent's properties
+        state = [
+            me.get_damage(),
+            me.get_hp(),
+        ]
+
+        # visible buildings
+        buildings_obs = []
+        for b in buildings:
+            buildings_obs.append([
+                b.get_fieryness(),
+                b.get_temperature(),
+                b.get_total_area(),
+                b.get_building_code(),
+                len(self._get_unburnt_neighbors(b)),
+                distance(me.get_x(), me.get_y(), b.get_x(), b.get_y())
+            ])
+        state.append(buildings_obs)
+
+        # visible civilians
+        civilians_obs = []
+        for c in civilians:
+            civilians_obs.append([
+                c.get_buriedness(),
+                c.get_damage(),
+                c.get_hp(),
+                distance(me.get_x(), me.get_y(), c.get_x(), c.get_y()),
+            ])
+        state.append(civilians_obs)
+
+        return state
 
     def think(self, time_step, change_set, heard):
         self.Log.info(f'Time step {time_step}')
@@ -118,8 +172,21 @@ class AmbulanceTeamAgent(Agent):
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
         self._seen_civilians = len(civilians) > 0
 
+        # if there's a cached experience then this state is the previous experience's next state
+        state = self.construct_state(change_set_entities)
+        if self._cached_exp and self._cached_exp.next_state is None:
+            self._cached_exp.next_state = state
+            self.experience_buffer.add_ts_experience(time_step, self._cached_exp)
+
         # share information with neighbors
-        self.bdi_agent.share_information()
+        kwargs = {}
+        if self._cached_exp:
+            kwargs['shared_exp'] = {
+                'time_step': time_step - 1,
+                'exp': self._cached_exp.to_dict(),
+            }
+        self.bdi_agent.share_information(**kwargs)
+        self._cached_exp = None  # clear cached experience after sharing
 
         # if someone is onboard, focus on transporting the person to a refuge
         if on_board_civilian:
@@ -141,12 +208,20 @@ class AmbulanceTeamAgent(Agent):
                     self.Log.warning('Failed to plan path to refuge')
 
         # if no civilian is visible or no one on board but at a refuge, explore environment
-        elif not civilians or isinstance(self.location(), Refuge):
-            self.send_search(time_step)
+        # elif not civilians or isinstance(self.location(), Refuge):
+        #     self.send_search(time_step)
 
         else:  # if civilians are visible, deliberate on who to save
             # execute thinking process
-            value = self.bdi_agent.deliberate()
+            value, score = self.bdi_agent.deliberate()
+
+            if score:
+                self._cached_exp = Experience(
+                    state=state,
+                    action=value,
+                    utility=score,
+                    next_state=None,
+                )
 
             # if selected value or action is Search, no need to examine civilian related expressions
             if value == SEARCH_ACTION:

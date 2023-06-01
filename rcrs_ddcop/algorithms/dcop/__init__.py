@@ -18,6 +18,7 @@ class DCOP:
         self.comm = agent.comm
         self.value = None
         self._on_value_selected_cb = on_value_selected
+        self.cost = None
 
     @property
     def domain(self):
@@ -39,7 +40,7 @@ class DCOP:
         self.value_selection(self.value)
 
     def value_selection(self, val):
-        self._on_value_selected_cb(val)
+        self._on_value_selected_cb(val, cost=self.cost)
 
     # ---------------- Algorithm specific methods ----------------------- #
 

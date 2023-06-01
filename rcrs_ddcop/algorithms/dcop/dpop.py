@@ -27,6 +27,7 @@ class DPOP(DCOP):
             self.arg_optimization_op = np.argmin
 
     def on_time_step_changed(self):
+        self.cost = None
         self.X_ij = None
         self.value = None
         self.util_messages.clear()

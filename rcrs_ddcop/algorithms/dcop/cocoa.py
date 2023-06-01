@@ -22,6 +22,7 @@ class CoCoA(DCOP):
         self.cost_map = {}
 
     def on_time_step_changed(self):
+        self.cost = None
         self._can_start = False
         self._started = False
         self.state = self.IDLE
@@ -103,6 +104,7 @@ class CoCoA(DCOP):
             op = min
         self.value = op(total_cost_dict, key=lambda d: total_cost_dict[d]['cost'])
         best_params = total_cost_dict[self.value]['params']
+        self.cost = total_cost_dict[self.value]['cost']
         self.log.info(f'Best params: {best_params}, {self.value}')
 
         # update agent
