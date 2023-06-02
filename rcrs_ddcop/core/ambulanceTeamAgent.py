@@ -208,8 +208,8 @@ class AmbulanceTeamAgent(Agent):
                     self.Log.warning('Failed to plan path to refuge')
 
         # if no civilian is visible or no one on board but at a refuge, explore environment
-        # elif not civilians or isinstance(self.location(), Refuge):
-        #     self.send_search(time_step)
+        elif not civilians or isinstance(self.location(), Refuge):
+            self.send_search(time_step)
 
         else:  # if civilians are visible, deliberate on who to save
             # execute thinking process
@@ -225,7 +225,7 @@ class AmbulanceTeamAgent(Agent):
 
             # if selected value or action is Search, no need to examine civilian related expressions
             if value == SEARCH_ACTION:
-                # self.send_search(time_step)
+                self.send_search(time_step)
                 self.Log.warning('search action selected')
                 return
 
