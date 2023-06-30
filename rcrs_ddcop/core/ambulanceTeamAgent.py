@@ -1,4 +1,5 @@
 import threading
+from itertools import chain
 from typing import List
 
 import numpy as np
@@ -117,28 +118,24 @@ class AmbulanceTeamAgent(Agent):
         ]
 
         # visible buildings
-        buildings_obs = []
         for b in buildings:
-            buildings_obs.append([
+            state = state + [
                 b.get_fieryness(),
                 b.get_temperature(),
                 b.get_total_area(),
                 b.get_building_code(),
                 len(self._get_unburnt_neighbors(b)),
                 distance(me.get_x(), me.get_y(), b.get_x(), b.get_y())
-            ])
-        state.append(buildings_obs)
+            ]
 
         # visible civilians
-        civilians_obs = []
         for c in civilians:
-            civilians_obs.append([
+            state = state + [
                 c.get_buriedness(),
                 c.get_damage(),
                 c.get_hp(),
                 distance(me.get_x(), me.get_y(), c.get_x(), c.get_y()),
-            ])
-        state.append(civilians_obs)
+            ]
 
         return state
 
@@ -167,26 +164,28 @@ class AmbulanceTeamAgent(Agent):
 
         # get civilians to construct domain or set domain to civilian currently onboard
         civilians = self.get_civilians(change_set_entities)
+        buildings = self.get_buildings(change_set_entities)
         civilians = self._validate_civilians(civilians)
-        domain = [SEARCH_ACTION] + [c.get_id().get_value() for c in civilians]
+        domain = [c.get_id().get_value() for c in chain(civilians, buildings)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
         self._seen_civilians = len(civilians) > 0
 
         # if there's a cached experience then this state is the previous experience's next state
-        state = self.construct_state(change_set_entities)
+        state = (self.construct_state(self.world_model.unindexedـentities.values()), domain)
+        self.bdi_agent.state = state
+        kwargs = {}
         if self._cached_exp and self._cached_exp.next_state is None:
             self._cached_exp.next_state = state
             self.experience_buffer.add_ts_experience(time_step, self._cached_exp)
 
-        # share information with neighbors
-        kwargs = {}
-        if self._cached_exp:
+            # share information with neighbors
             kwargs['shared_exp'] = {
                 'time_step': time_step - 1,
                 'exp': self._cached_exp.to_dict(),
             }
+            self._cached_exp = None  # clear cached experience after sharing
+
         self.bdi_agent.share_information(**kwargs)
-        self._cached_exp = None  # clear cached experience after sharing
 
         # if someone is onboard, focus on transporting the person to a refuge
         if on_board_civilian:
@@ -213,38 +212,38 @@ class AmbulanceTeamAgent(Agent):
 
         else:  # if civilians are visible, deliberate on who to save
             # execute thinking process
-            value, score = self.bdi_agent.deliberate()
+            agent_values, score = self.bdi_agent.deliberate(state)
 
-            if score:
+            if score is not None:
                 self._cached_exp = Experience(
                     state=state,
-                    action=value,
+                    action=list(agent_values.values()),
                     utility=score,
                     next_state=None,
                 )
 
-            # if selected value or action is Search, no need to examine civilian related expressions
-            if value == SEARCH_ACTION:
-                self.send_search(time_step)
-                self.Log.warning('search action selected')
-                return
-
-            # create entity ID obj from raw civilian id
-            civilian_id = EntityID(value)
-            civilian: Civilian = self.world_model.get_entity(civilian_id)
-            self.Log.info(f'Time step {time_step}: selected civilian {civilian_id}')
-
-            # if agent's location is the same as civilian's location, load the civilian else plan path to civilian
-            if civilian.position.get_value() == self.location().get_id():
-                self.Log.info(f'Loading {civilian_id}')
-                self.send_load(time_step, civilian_id)
-            else:
-                path = self.search.breadth_first_search(self.location().get_id(), [civilian.position.get_value()])
-                self.Log.info(f'Moving to target {civilian_id}')
-                if path:
-                    self.send_move(time_step, path)
-                else:
-                    self.Log.warning(f'Failed to plan path to {civilian_id}')
+            # # if selected value or action is Search, no need to examine civilian related expressions
+            # if value == SEARCH_ACTION:
+            #     self.send_search(time_step)
+            #     self.Log.warning('search action selected')
+            #     return
+            #
+            # # create entity ID obj from raw civilian id
+            # civilian_id = EntityID(value)
+            # civilian: Civilian = self.world_model.get_entity(civilian_id)
+            # self.Log.info(f'Time step {time_step}: selected civilian {civilian_id}')
+            #
+            # # if agent's location is the same as civilian's location, load the civilian else plan path to civilian
+            # if civilian.position.get_value() == self.location().get_id():
+            #     self.Log.info(f'Loading {civilian_id}')
+            #     self.send_load(time_step, civilian_id)
+            # else:
+            #     path = self.search.breadth_first_search(self.location().get_id(), [civilian.position.get_value()])
+            #     self.Log.info(f'Moving to target {civilian_id}')
+            #     if path:
+            #         self.send_move(time_step, path)
+            #     else:
+            #         self.Log.warning(f'Failed to plan path to {civilian_id}')
 
         # self.send_load(time_step, target)
         # self.send_unload(time_step)

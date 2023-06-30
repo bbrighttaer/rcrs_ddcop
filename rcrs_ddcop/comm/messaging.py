@@ -34,6 +34,11 @@ class CoCoAMsgTypes(StrEnum):
     EXECUTION_REQUEST = auto()
 
 
+class LSLAMsgTypes(StrEnum):
+    LSLA_INQUIRY_MESSAGE = auto()
+    LSLA_UTIL_MESSAGE = auto()
+
+
 def _create_msg(msg_type: str, data: dict):
     return json.dumps({
         'type': msg_type,
@@ -111,3 +116,11 @@ def create_execution_request_message(data):
 
 def create_shared_info_message(data):
     return _create_msg(AgentMsgTypes.SHARED_INFO, data)
+
+
+def create_lsla_inquiry_message(data):
+    return _create_msg(LSLAMsgTypes.LSLA_INQUIRY_MESSAGE, data)
+
+
+def create_lsla_util_message(data):
+    return _create_msg(LSLAMsgTypes.LSLA_UTIL_MESSAGE, data)

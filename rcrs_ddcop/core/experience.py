@@ -6,10 +6,10 @@ from dataclasses import dataclass
 
 @dataclass
 class Experience:
-    state: typing.Any
-    action: typing.Any
-    utility: typing.Any
-    next_state: typing.Any
+    state: typing.Tuple
+    action: typing.List
+    utility: float
+    next_state: typing.Optional[typing.List]
 
     def to_dict(self):
         return self.__dict__

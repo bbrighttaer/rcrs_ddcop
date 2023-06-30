@@ -214,3 +214,14 @@ class AgentPseudoComm(object):
     def threadsafe_execution(self, func: Callable):
         self.client.add_callback_threadsafe(func)
 
+    def send_lsla_inquiry_message(self, agent_id, data):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_lsla_inquiry_message(data),
+        )
+
+    def send_lsla_util_message(self, agent_id, data):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_lsla_util_message(data),
+        )

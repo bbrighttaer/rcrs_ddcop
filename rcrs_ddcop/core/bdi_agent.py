@@ -1,9 +1,11 @@
 import datetime
 import threading
 
+import numpy as np
 from rcrs_core.agents.agent import Agent
 
 from rcrs_ddcop.algorithms.dcop.dpop import DPOP
+from rcrs_ddcop.algorithms.dcop.lsla import LSLA
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
@@ -21,6 +23,7 @@ class BDIAgent(object):
         self.log = agent.Log
         self.agent_id = agent.agent_id.get_value()
         self._domain = []
+        self._state = None
         self._agents_in_comm_range = []
         self._new_agents = []
         self._value = None
@@ -37,7 +40,7 @@ class BDIAgent(object):
         # create instances of main components
         self.comm = AgentPseudoComm(agent, self.handle_message)
         self.graph = DIGCA(self)
-        self.dcop = DPOP(self, self.on_value_selected)
+        self.dcop = LSLA(self, self.on_value_selected)
 
     @property
     def domain(self):
@@ -46,6 +49,14 @@ class BDIAgent(object):
     @domain.setter
     def domain(self, v):
         self._domain = v
+
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, s):
+        self._state = s
 
     @property
     def agents_in_comm_range(self):
@@ -104,6 +115,9 @@ class BDIAgent(object):
         self._previous_value = self._value
         self._value = None
 
+    def belief_revision_function(self):
+        ...
+
     def objective(self, agent_vals: dict):
         """
         The desire is to optimize the objective functions in its neighborhood.
@@ -126,7 +140,7 @@ class BDIAgent(object):
             },
         )
 
-    def deliberate(self):
+    def deliberate(self, state):
         """
         Determines what the agent wants to do in the environment - its intention.
         :return:
@@ -135,6 +149,8 @@ class BDIAgent(object):
         self.latest_event_timestamp = datetime.datetime.now().timestamp()
         self._new_agents = set(self.agents_in_comm_range) - set(self.graph.neighbors)
         self._value_selection_evt.clear()
+
+        self._utilities = np.zeros((len(self.domain), 1))
 
         # clear currently assigned value
         self.clear_current_value()
@@ -210,6 +226,13 @@ class BDIAgent(object):
             # Other agent communication
             case messaging.AgentMsgTypes.SHARED_INFO:
                 self.receive_shared_info(message)
+
+            # LSLA message handling
+            case messaging.LSLAMsgTypes.LSLA_INQUIRY_MESSAGE:
+                self.dcop.receive_inquiry_message(message)
+
+            case messaging.LSLAMsgTypes.LSLA_UTIL_MESSAGE:
+                self.dcop.receive_util_message(message)
 
             case _:
                 self.log.info(f'Could not handle received payload: {message}')
