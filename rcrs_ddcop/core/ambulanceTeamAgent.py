@@ -217,7 +217,7 @@ class AmbulanceTeamAgent(Agent):
             if score is not None:
                 self._cached_exp = Experience(
                     state=state,
-                    action=list(agent_values.values()),
+                    action=agent_values,
                     utility=score,
                     next_state=None,
                 )
