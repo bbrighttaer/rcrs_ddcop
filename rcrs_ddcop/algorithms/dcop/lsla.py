@@ -1,13 +1,18 @@
 import random
-import threading
 from collections import defaultdict
 from enum import auto
 from typing import Callable, Tuple, List
 
 import numpy as np
+import torch
 from strenum import StrEnum
+from torch_geometric.loader import DataLoader
 
 from rcrs_ddcop.algorithms.dcop import DCOP
+
+from rcrs_ddcop.core import data
+from rcrs_ddcop.core.data import SimulationDataset
+from rcrs_ddcop.core.nn import GCN
 
 
 def preprocess_states(raw_states: List[Tuple]):
@@ -58,6 +63,11 @@ class LSLA(DCOP):
         self.value_opt = None
         self.model_update_opt = None
 
+        # models
+        self.r_model = GCN(n_in_dim=11, n_out_dim=1)
+        self.avg_util_model = GCN(n_in_dim=11, n_out_dim=1)
+        self.look_ahead_model = GCN(n_in_dim=11, n_out_dim=11)
+
     def on_time_step_changed(self):
         ...
 
@@ -66,7 +76,10 @@ class LSLA(DCOP):
             opt_type=OptType.VALUE_SELECTION,
             lsla=self,
             look_ahead_limit=3,
-            states=[self.agent.state],
+            states=self.agent.state,
+            r_model=self.r_model,
+            avg_util_model=self.avg_util_model,
+            look_ahead_model=self.look_ahead_model,
         )
         self.value_opt.start()
 
@@ -92,7 +105,8 @@ class OptType(StrEnum):
 
 class LookAheadOptimization:
 
-    def __init__(self, opt_type: OptType, lsla: LSLA, states, look_ahead_limit=3):
+    def __init__(self, opt_type: OptType, lsla: LSLA, states,
+                 r_model, avg_util_model, look_ahead_model, look_ahead_limit=3):
         self.opt_type = opt_type
         self.lsla = lsla
         self.comm = lsla.comm
@@ -123,6 +137,11 @@ class LookAheadOptimization:
         # for maintaining look-ahead loop
         self._B = []
 
+        # models
+        self.r_model = r_model
+        self.avg_util_model = avg_util_model
+        self.look_ahead_model = look_ahead_model
+
     def start(self):
         """
         Runs to get neighborhood-optimal values in a time step
@@ -133,7 +152,7 @@ class LookAheadOptimization:
         self._look_ahead_iter = None
 
         # preprocess state and domain
-        self.states, domain, self.value_mask = preprocess_states(self.states)
+        domain = self.states
         self._domain_iter = iter(domain)
 
         self.next_iteration()
@@ -205,32 +224,35 @@ class LookAheadOptimization:
             self.comm.send_lsla_inquiry_message(agent, {
                 'agent_id': self.agent.agent_id,
                 'opt_type': self.opt_type,
-                'states': self.states.tolist(),
-                'domain': self.domain,
+                'domain': [data.data_to_dict(d) for d in self.domain],
             })
 
     def receive_inquiry_message(self, payload):
         self.log.info(f'Received LSLA inquiry request message')
-        data = payload['payload']
-        sender = data['agent_id']
-        states_j = data['states']
-        domain_j = data['domain']
+        payload = payload['payload']
+        sender = payload['agent_id']
+        domain_j = [data.dict_to_data(d) for d in payload['domain']]
 
-        domain = self.agent.domain
-        X = np.zeros((len(domain), len(domain_j), len(states_j)))
+        dataset = SimulationDataset(domain_j)
+        data_loader = DataLoader(dataset, batch_size=len(domain_j))
+        sim_data = next(iter(data_loader))
+        X = self.r_model(sim_data)
 
-        for n in range(len(domain_j)):
-            for m in range(len(domain)):
-                X[m, n] = self._get_r_value(states_j, [m, n])
+        # domain = self.agent.domain
+        # X = np.zeros((len(domain), len(domain_j), len(states_j)))
 
-        U1 = np.max(X, axis=0)
-        U2 = np.array(domain)[np.argmax(X, axis=0)]
+        # for n in range(len(domain_j)):
+        #     for m in range(len(domain)):
+        #         X[m, n] = self._get_r_value(states_j, [m, n])
+        #
+        # U1 = np.max(X, axis=0)
+        # U2 = np.array(domain)[np.argmax(X, axis=0)]
 
         self.comm.send_lsla_util_message(sender, {
             'agent_id': self.agent.agent_id,
             'opt_type': self.opt_type,
-            'U1': U1.tolist(),
-            'U2': U2.tolist(),
+            'U1': X.tolist(),
+            # 'U2': U2.tolist(),
         })
 
     def _get_r_value(self, states_j, domain_tuple):
@@ -240,17 +262,17 @@ class LookAheadOptimization:
         self.log.info(f'Received LSLA util message: {payload}')
         data = payload['payload']
         sender = data['agent_id']
-        U1 = data['U1']
-        U2 = data['U2']
+        U1 = torch.tensor(data['U1'])
+        # U2 = data['U2']
 
         self._util_msg_receipt_order.append(sender)  # Q
-        self._neighbor_optimal_vals.append(U2)  # V
+        # self._neighbor_optimal_vals.append(U2)  # V
         current_domain_size = len(U1)
 
         if self._aggregated_utils is None:
-            self._aggregated_utils = np.zeros((current_domain_size, len(self.states)))
+            self._aggregated_utils = torch.zeros_like(U1)
 
-        self._aggregated_utils += np.array(U1)
+        self._aggregated_utils += U1
 
         if len(self._util_msg_receipt_order) == len(self.graph.neighbors):
             self._neighbor_optimal_vals = np.array(self._neighbor_optimal_vals)
@@ -274,3 +296,4 @@ class LookAheadOptimization:
 
     def evaluate_local_joint_values(self, joint_values):
         return random.random()
+

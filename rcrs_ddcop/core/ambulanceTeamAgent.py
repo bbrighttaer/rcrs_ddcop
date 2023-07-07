@@ -3,6 +3,9 @@ from itertools import chain
 from typing import List
 
 import numpy as np
+import networkx as nx
+import torch
+from torch_geometric.data import Data
 from rcrs_core.agents.agent import Agent
 from rcrs_core.connection import URN
 from rcrs_core.constants import kernel_constants
@@ -106,38 +109,65 @@ class AmbulanceTeamAgent(Agent):
                 unburnt.append(entity)
         return unburnt
 
-    def construct_state(self, entities: List[Entity]):
+    def construct_state(self, entities: List[Entity], current_time_step: int):
         buildings = self.get_buildings(entities)
         civilians = self.get_civilians(entities)
         me = self.me()
 
-        # this agent's properties
-        state = [
-            me.get_damage(),
-            me.get_hp(),
-        ]
-
-        # visible buildings
+        # construct graph for the state
+        G = nx.Graph()
         for b in buildings:
-            state = state + [
-                b.get_fieryness(),
-                b.get_temperature(),
-                b.get_total_area(),
-                b.get_building_code(),
-                len(self._get_unburnt_neighbors(b)),
-                distance(me.get_x(), me.get_y(), b.get_x(), b.get_y())
-            ]
+            neighbors = b.get_neighbours()
+            for n in neighbors:
+                entity = self.world_model.get_entity(n)
+                if isinstance(entity, Building):
+                    G.add_edge(b.get_id().get_value(), n.get_value())
 
-        # visible civilians
         for c in civilians:
-            state = state + [
-                c.get_buriedness(),
-                c.get_damage(),
-                c.get_hp(),
-                distance(me.get_x(), me.get_y(), c.get_x(), c.get_y()),
-            ]
+            entity = self.world_model.get_entity(c.position.get_value())
+            if isinstance(entity, Building):
+                G.add_edge(c.get_id().get_value(), entity.get_id().get_value())
 
-        return state
+        # construct node features
+        node_features = []
+        for node in G.nodes:
+            entity = self.world_model.get_entity(EntityID(node))
+            if isinstance(entity, Building):
+                node_features.append([
+                    entity.get_fieryness(),
+                    entity.get_temperature(),
+                    entity.get_total_area(),
+                    entity.get_building_code(),
+                    len(self._get_unburnt_neighbors(entity)),
+                    distance(me.get_x(), me.get_y(), entity.get_x(), entity.get_y())
+                ] + [0] * 4 + [0])
+            elif isinstance(entity, Civilian):
+                node_features.append([0] * 6 + [
+                    entity.get_buriedness(),
+                    entity.get_damage(),
+                    entity.get_hp(),
+                    distance(me.get_x(), me.get_y(), entity.get_x(), entity.get_y()),
+                ] + [0])
+
+        adjacency_matrix = nx.adjacency_matrix(G)
+        rows, cols = np.nonzero(adjacency_matrix)
+        edge_index_coo = torch.tensor(np.array(list(zip(rows, cols))).reshape(2, -1), dtype=torch.long)
+
+        state_data_set = []
+        nodes = list(G.nodes.keys())
+        for i, feat in enumerate(node_features):
+            node_feat_arr = np.array(node_features)
+            node_feat_arr[i] = np.array(feat[:-1] + [1])
+            node_feat_arr = torch.tensor(node_feat_arr, dtype=torch.float)
+            data = Data(
+                x=node_feat_arr,
+                edge_index=edge_index_coo,
+                time_step=current_time_step - 1,  # start from 0
+                entity_id=nodes[i],
+            )
+            state_data_set.append(data)
+
+        return state_data_set
 
     def think(self, time_step, change_set, heard):
         self.Log.info(f'Time step {time_step}')
@@ -171,7 +201,7 @@ class AmbulanceTeamAgent(Agent):
         self._seen_civilians = len(civilians) > 0
 
         # if there's a cached experience then this state is the previous experience's next state
-        state = (self.construct_state(self.world_model.unindexedـentities.values()), domain)
+        state = self.construct_state(self.world_model.unindexedـentities.values(), time_step)
         self.bdi_agent.state = state
         kwargs = {}
         if self._cached_exp and self._cached_exp.next_state is None:

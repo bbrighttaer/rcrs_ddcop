@@ -1,12 +1,12 @@
 import random
 import typing
-from collections import defaultdict, deque
+from collections import deque
 from dataclasses import dataclass
 
 
 @dataclass
 class Experience:
-    state: typing.Tuple
+    state: typing.List
     action: typing.List
     utility: float
     next_state: typing.Optional[typing.List]
@@ -28,3 +28,5 @@ class ExperienceBuffer:
 
     def __len__(self):
         return len(self.memory)
+
+
