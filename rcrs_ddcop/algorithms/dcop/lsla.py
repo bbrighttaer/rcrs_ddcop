@@ -151,17 +151,12 @@ class LookAheadOptimization:
         self._domain_iter = None
         self._look_ahead_iter = None
 
-        # preprocess state and domain
-        domain = self.states
-        self._domain_iter = iter(domain)
-
         self.next_iteration()
 
     def next_iteration(self):
         if self.opt_type == OptType.VALUE_SELECTION:
             # trigger optimization process for each value in domain
             try:
-                self.domain = [next(self._domain_iter)]
                 self._look_ahead_iter = iter(list(range(self.look_ahead_limit)))
                 self.neighborhood_optimal_r_value_search()
             except StopIteration:
@@ -224,17 +219,17 @@ class LookAheadOptimization:
             self.comm.send_lsla_inquiry_message(agent, {
                 'agent_id': self.agent.agent_id,
                 'opt_type': self.opt_type,
-                'domain': [data.data_to_dict(d) for d in self.domain],
+                'states': [data.data_to_dict(d) for d in self.states],
             })
 
     def receive_inquiry_message(self, payload):
         self.log.info(f'Received LSLA inquiry request message')
         payload = payload['payload']
         sender = payload['agent_id']
-        domain_j = [data.dict_to_data(d) for d in payload['domain']]
+        states_j = [data.dict_to_data(d) for d in payload['states']]
 
-        dataset = SimulationDataset(domain_j)
-        data_loader = DataLoader(dataset, batch_size=len(domain_j))
+        dataset = SimulationDataset(states_j)
+        data_loader = DataLoader(dataset, batch_size=len(states_j))
         sim_data = next(iter(data_loader))
         X = self.r_model(sim_data)
 
@@ -267,7 +262,7 @@ class LookAheadOptimization:
 
         self._util_msg_receipt_order.append(sender)  # Q
         # self._neighbor_optimal_vals.append(U2)  # V
-        current_domain_size = len(U1)
+        # current_domain_size = len(U1)
 
         if self._aggregated_utils is None:
             self._aggregated_utils = torch.zeros_like(U1)
@@ -275,19 +270,6 @@ class LookAheadOptimization:
         self._aggregated_utils += U1
 
         if len(self._util_msg_receipt_order) == len(self.graph.neighbors):
-            self._neighbor_optimal_vals = np.array(self._neighbor_optimal_vals)
-            if self.opt_type == OptType.MODEL_UPDATE:
-                self._aggregated_utils *= self.value_mask
-            local_value_idx = np.argmax(self._aggregated_utils, axis=0)
-            neighbor_vals = self._neighbor_optimal_vals[:, local_value_idx, :]
-            neighbor_vals = neighbor_vals.reshape(self._neighbor_optimal_vals.shape[0], -1)
-
-            self.opt_results = [
-                local_value_idx,
-                neighbor_vals,
-                self._util_msg_receipt_order,
-            ]
-
             # go to next look-ahead step
             self._process_optimization_results()
 
