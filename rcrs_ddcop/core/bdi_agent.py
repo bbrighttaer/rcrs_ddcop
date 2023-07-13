@@ -3,13 +3,14 @@ import threading
 
 import numpy as np
 from rcrs_core.agents.agent import Agent
+from rcrs_core.worldmodel.worldmodel import WorldModel
 
-from rcrs_ddcop.algorithms.dcop.dpop import DPOP
-from rcrs_ddcop.algorithms.dcop.lsla import LSLA
+from rcrs_ddcop.algorithms.dcop.la_cocoa import LA_CoCoA
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
-from rcrs_ddcop.core.experience import Experience, ExperienceBuffer
+from rcrs_ddcop.core.data import dict_to_state
+from rcrs_ddcop.core.experience import ExperienceBuffer
 
 
 class BDIAgent(object):
@@ -31,8 +32,8 @@ class BDIAgent(object):
         self._terminate = False
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
-        self._binary_constraint = agent.binary_constraint
-        self._experience_buffer: ExperienceBuffer = agent.experience_buffer
+        self.experience_buffer = ExperienceBuffer()
+        self.unary_constraint = agent.unary_constraint
 
         # manages when control is returned to agent entity
         self._value_selection_evt = threading.Event()
@@ -40,7 +41,7 @@ class BDIAgent(object):
         # create instances of main components
         self.comm = AgentPseudoComm(agent, self.handle_message)
         self.graph = DIGCA(self)
-        self.dcop = LSLA(self, self.on_value_selected)
+        self.dcop = LA_CoCoA(self, self.on_value_selected)
 
     @property
     def domain(self):
@@ -118,12 +119,20 @@ class BDIAgent(object):
     def belief_revision_function(self):
         ...
 
-    def objective(self, agent_vals: dict):
+    def neighbor_constraint(self, context: WorldModel, agent_vals: dict):
         """
         The desire is to optimize the objective functions in its neighborhood.
         :return:
         """
-        score = self._binary_constraint(agent_vals)
+        score = 0
+        penalty = 2
+        agent_vals = dict(agent_vals)
+        selected_value = agent_vals.pop(self.agent_id)
+        neighbor_value = list(agent_vals.values())[0]
+
+        # coordination constraint
+        score -= penalty if selected_value == neighbor_value else 0
+
         return score
 
     def share_information(self, **kwargs):
@@ -223,6 +232,19 @@ class BDIAgent(object):
             case messaging.DPOPMsgTypes.REQUEST_UTIL_MESSAGE:
                 self.dcop.receive_util_message_request(message)
 
+            # CoCoA message handling
+            case messaging.CoCoAMsgTypes.INQUIRY_MESSAGE:
+                self.dcop.receive_inquiry_message(message)
+
+            case messaging.CoCoAMsgTypes.COST_MESSAGE:
+                self.dcop.receive_cost_message(message)
+
+            case messaging.CoCoAMsgTypes.UPDATE_STATE_MESSAGE:
+                self.dcop.receive_update_state_message(message)
+
+            case messaging.CoCoAMsgTypes.EXECUTION_REQUEST:
+                self.dcop.receive_execution_request_message(message)
+
             # Other agent communication
             case messaging.AgentMsgTypes.SHARED_INFO:
                 self.receive_shared_info(message)
@@ -241,21 +263,13 @@ class BDIAgent(object):
         self.log.info(f'Received shared message')
         data = message['payload']
         sender = data['agent_id']
-        shared_exp = data.get('shared_exp')
+        shared_exp = data.get('exp')
         self.add_neighbor_domain(sender, data['domain'])
         self.add_neighbor_previous_value(sender, data['previous_value'])
 
         if shared_exp:
-            time_step = shared_exp['time_step']
-            exp = Experience(
-                state=shared_exp['exp']['state'],
-                action=shared_exp['exp']['action'],
-                utility=shared_exp['exp']['utility'],
-                next_state=shared_exp['exp']['next_state'],
-            )
-            self._experience_buffer.add_ts_experience(
-                time_step=time_step,
-                exp=exp,
+            self.experience_buffer.add(
+                exp=[dict_to_state(shared_exp[0]), dict_to_state(shared_exp[1])],
             )
 
     def __call__(self, *args, **kwargs):

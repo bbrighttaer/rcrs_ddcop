@@ -3,9 +3,6 @@ from itertools import chain
 from typing import List
 
 import numpy as np
-import networkx as nx
-import torch
-from torch_geometric.data import Data
 from rcrs_core.agents.agent import Agent
 from rcrs_core.connection import URN
 from rcrs_core.constants import kernel_constants
@@ -15,11 +12,12 @@ from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
 from rcrs_core.entities.refuge import Refuge
 from rcrs_core.worldmodel.entityID import EntityID
+from rcrs_core.worldmodel.worldmodel import WorldModel
 
 from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
+from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
-from rcrs_ddcop.core.experience import ExperienceBuffer, Experience
 
 SEARCH_ACTION = -1
 
@@ -38,9 +36,8 @@ class AmbulanceTeamAgent(Agent):
         self.refuges = set()
         self._previous_position = (0, 0)
         self._estimated_tau = 0
-        self._seen_civilians = False
+        self.seen_civilians = False
         self._cached_exp = None
-        self.experience_buffer = ExperienceBuffer()
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -109,66 +106,6 @@ class AmbulanceTeamAgent(Agent):
                 unburnt.append(entity)
         return unburnt
 
-    def construct_state(self, entities: List[Entity], current_time_step: int):
-        buildings = self.get_buildings(entities)
-        civilians = self.get_civilians(entities)
-        me = self.me()
-
-        # construct graph for the state
-        G = nx.Graph()
-        for b in buildings:
-            neighbors = b.get_neighbours()
-            for n in neighbors:
-                entity = self.world_model.get_entity(n)
-                if isinstance(entity, Building):
-                    G.add_edge(b.get_id().get_value(), n.get_value())
-
-        for c in civilians:
-            entity = self.world_model.get_entity(c.position.get_value())
-            if isinstance(entity, Building):
-                G.add_edge(c.get_id().get_value(), entity.get_id().get_value())
-
-        # construct node features
-        node_features = []
-        for node in G.nodes:
-            entity = self.world_model.get_entity(EntityID(node))
-            if isinstance(entity, Building):
-                node_features.append([
-                    entity.get_fieryness(),
-                    entity.get_temperature(),
-                    entity.get_total_area(),
-                    entity.get_building_code(),
-                    len(self._get_unburnt_neighbors(entity)),
-                    distance(me.get_x(), me.get_y(), entity.get_x(), entity.get_y())
-                ] + [0] * 4 + [0])
-            elif isinstance(entity, Civilian):
-                node_features.append([0] * 6 + [
-                    entity.get_buriedness(),
-                    entity.get_damage(),
-                    entity.get_hp(),
-                    distance(me.get_x(), me.get_y(), entity.get_x(), entity.get_y()),
-                ] + [0])
-
-        adjacency_matrix = nx.adjacency_matrix(G)
-        rows, cols = np.nonzero(adjacency_matrix)
-        edge_index_coo = torch.tensor(np.array(list(zip(rows, cols))).reshape(2, -1), dtype=torch.long)
-
-        state_data_set = []
-        nodes = list(G.nodes.keys())
-        for i, feat in enumerate(node_features):
-            node_feat_arr = np.array(node_features)
-            node_feat_arr[i] = np.array(feat[:-1] + [1])
-            node_feat_arr = torch.tensor(node_feat_arr, dtype=torch.float)
-            data = Data(
-                x=node_feat_arr,
-                edge_index=edge_index_coo,
-                time_step=current_time_step - 1,  # start from 0
-                entity_id=nodes[i],
-            )
-            state_data_set.append(data)
-
-        return state_data_set
-
     def think(self, time_step, change_set, heard):
         self.Log.info(f'Time step {time_step}')
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
@@ -198,24 +135,19 @@ class AmbulanceTeamAgent(Agent):
         civilians = self._validate_civilians(civilians)
         domain = [c.get_id().get_value() for c in chain(civilians, buildings)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
-        self._seen_civilians = len(civilians) > 0
+        self.seen_civilians = len(civilians) > 0
 
-        # if there's a cached experience then this state is the previous experience's next state
-        state = self.construct_state(self.world_model.unindexedـentities.values(), time_step)
+        # construct agent's state from world view
+        state = world_to_state(self.world_model)
         self.bdi_agent.state = state
-        kwargs = {}
-        if self._cached_exp and self._cached_exp.next_state is None:
-            self._cached_exp.next_state = state
-            self.experience_buffer.add_ts_experience(time_step, self._cached_exp)
 
-            # share information with neighbors
-            kwargs['shared_exp'] = {
-                'time_step': time_step - 1,
-                'exp': self._cached_exp.to_dict(),
-            }
-            self._cached_exp = None  # clear cached experience after sharing
-
-        self.bdi_agent.share_information(**kwargs)
+        # share information with neighbors
+        if self._cached_exp:
+            self.bdi_agent.experience_buffer.add((self._cached_exp, state))
+            self.bdi_agent.share_information(exp=[
+                state_to_dict(self._cached_exp), state_to_dict(state)
+            ])
+        self._cached_exp = state
 
         # if someone is onboard, focus on transporting the person to a refuge
         if on_board_civilian:
@@ -243,14 +175,6 @@ class AmbulanceTeamAgent(Agent):
         else:  # if civilians are visible, deliberate on who to save
             # execute thinking process
             agent_values, score = self.bdi_agent.deliberate(state)
-
-            if score is not None:
-                self._cached_exp = Experience(
-                    state=state,
-                    action=agent_values,
-                    utility=score,
-                    next_state=None,
-                )
 
             # # if selected value or action is Search, no need to examine civilian related expressions
             # if value == SEARCH_ACTION:
@@ -306,53 +230,6 @@ class AmbulanceTeamAgent(Agent):
             if isinstance(entity, Building) and entity.entity_id in self.unexplored_buildings:
                 self.unexplored_buildings.pop(entity.entity_id)
 
-    def binary_constraint(self, agent_vals: dict):
-        score = 0
-        eps = 1e-20
-        switching_cost = 5
-        penalty = 2
-        tau = 1000 if self._estimated_tau == 0 else self._estimated_tau
-
-        selected_value = agent_vals[self.agent_id.get_value()]
-        civilian: Civilian = self.world_model.get_entity(EntityID(selected_value))
-
-        # if this agent's selected value is SEARCH when there are civilians seen by the agent, award a penalty
-        if selected_value == SEARCH_ACTION:
-            if self._seen_civilians:
-                return np.log(eps)
-            elif not self._seen_civilians:
-                return 0
-
-        # get neighbor's selected value
-        neighbor_id = neighbor_value = None
-        for k, v in agent_vals.items():
-            if k != self.agent_id.get_value():
-                neighbor_id = k
-                neighbor_value = v
-                break
-
-        # fieryness unary constraint
-        location = self.world_model.get_entity(civilian.position.get_value())
-        if isinstance(location, Building):
-            score += -np.log(max(eps, location.get_fieryness()))
-
-        # buriedness unary constraint
-        if civilian.get_buriedness() != 0:
-            self.Log.debug(f'Civilian {civilian} buriedness is {civilian.get_buriedness()}')
-        score -= np.log(max(civilian.get_buriedness(), 1))
-
-        # distance unary constraint
-        score -= distance(civilian.get_x(), civilian.get_y(), self.me().get_x(), self.me().get_y()) / tau
-
-        # switching cost
-        prev_val = self.bdi_agent.previous_value
-        score -= switching_cost if prev_val and selected_value != prev_val else 0
-
-        # coordination constraint
-        score -= penalty if selected_value == neighbor_value else 0
-
-        return score
-
     def _validate_civilians(self, civilians: List[Civilian]) -> List[Civilian]:
         """
         filter out civilians who are already being transported by other agents.
@@ -363,3 +240,32 @@ class AmbulanceTeamAgent(Agent):
                 _cv.append(c)
 
         return _cv
+
+    def unary_constraint(self, context: WorldModel, selected_value):
+        score = 0
+        eps = 1e-20
+        penalty = 2
+        tau = 1000 if self._estimated_tau == 0 else self._estimated_tau
+
+        # get entity from context (given world)
+        entity = context.get_entity(EntityID(selected_value))
+
+        # distance
+        score -= distance(entity.get_x(), entity.get_y(), self.me().get_x(), self.me().get_y()) / tau
+
+        if isinstance(entity, Building):
+            if self.seen_civilians:
+                return penalty * np.log(eps)
+            else:
+                return score
+
+        if isinstance(entity, Civilian):
+            # fieryness unary constraint
+            location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
+            if isinstance(location, Building):
+                score += -np.log(max(eps, location.get_fieryness()))
+
+            # buriedness unary constraint
+            score -= np.log(max(entity.get_buriedness(), 1))
+
+        return score

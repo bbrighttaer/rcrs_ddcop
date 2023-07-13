@@ -20,7 +20,7 @@ class ExperienceBuffer:
     def __init__(self, capacity=1000):
         self.memory = deque([], maxlen=capacity)
 
-    def add_ts_experience(self, time_step: int, exp: Experience):
+    def add(self, exp):
         self.memory.append(exp)
 
     def sample(self, batch_size):
