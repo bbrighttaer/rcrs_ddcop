@@ -174,40 +174,35 @@ class AmbulanceTeamAgent(Agent):
 
         else:  # if civilians are visible, deliberate on who to save
             # execute thinking process
-            agent_values, score = self.bdi_agent.deliberate(state)
+            agent_value, score = self.bdi_agent.deliberate(state)
+            selected_entity = self.world_model.get_entity(EntityID(agent_value))
 
-            # # if selected value or action is Search, no need to examine civilian related expressions
-            # if value == SEARCH_ACTION:
-            #     self.send_search(time_step)
-            #     self.Log.warning('search action selected')
-            #     return
-            #
-            # # create entity ID obj from raw civilian id
-            # civilian_id = EntityID(value)
-            # civilian: Civilian = self.world_model.get_entity(civilian_id)
-            # self.Log.info(f'Time step {time_step}: selected civilian {civilian_id}')
-            #
-            # # if agent's location is the same as civilian's location, load the civilian else plan path to civilian
-            # if civilian.position.get_value() == self.location().get_id():
-            #     self.Log.info(f'Loading {civilian_id}')
-            #     self.send_load(time_step, civilian_id)
-            # else:
-            #     path = self.search.breadth_first_search(self.location().get_id(), [civilian.position.get_value()])
-            #     self.Log.info(f'Moving to target {civilian_id}')
-            #     if path:
-            #         self.send_move(time_step, path)
-            #     else:
-            #         self.Log.warning(f'Failed to plan path to {civilian_id}')
+            if isinstance(selected_entity, Building):
+                self.Log.info(f'Time step {time_step}: selected building {selected_entity.entity_id.get_value()}')
+                self.send_search(time_step, selected_entity.entity_id)
 
-        # self.send_load(time_step, target)
-        # self.send_unload(time_step)
-        # self.send_say(time_step, 'HELP')
-        # self.send_speak(time_step, 'HELP meeeee police', 1)
-        # self.send_move(time_step, my_path)
-        # self.send_rest(time_step)
+            elif isinstance(selected_entity, Civilian):
+                self.Log.info(f'Time step {time_step}: selected civilian {selected_entity.entity_id.get_value()}')
+                civilian = selected_entity
+                civilian_id = civilian.entity_id
 
-    def send_search(self, time_step):
-        path = self.search.breadth_first_search(self.location().get_id(), self.unexplored_buildings)
+                # if agent's location is the same as civilian's location, load the civilian else plan path to civilian
+                if selected_entity.position.get_value() == self.location().get_id():
+                    self.Log.info(f'Loading {civilian_id}')
+                    self.send_load(time_step, civilian_id)
+                else:
+                    path = self.search.breadth_first_search(self.location().get_id(), [civilian.position.get_value()])
+                    self.Log.info(f'Moving to target {civilian_id}')
+                    if path:
+                        self.send_move(time_step, path)
+                    else:
+                        self.Log.warning(f'Failed to plan path to {civilian_id}')
+
+    def send_search(self, time_step, building_id=None):
+        path = self.search.breadth_first_search(
+            self.location().get_id(),
+            [building_id] if building_id else self.unexplored_buildings,
+        )
         if path:
             self.Log.info('Searching buildings')
             self.send_move(time_step, path)
