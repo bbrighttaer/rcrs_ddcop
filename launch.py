@@ -7,12 +7,12 @@ from multiprocessing import Process
 from rcrs_core.connection.componentLauncher import ComponentLauncher
 from rcrs_core.constants.constants import DEFAULT_KERNEL_PORT_NUMBER, DEFAULT_KERNEL_HOST_NAME
 
-from rcrs_ddcop.core.policeForceAgent import PoliceForceAgent
-from rcrs_ddcop.core.ambulanceTeamAgent import AmbulanceTeamAgent
-from rcrs_ddcop.core.fireBrigadeAgent import FireBrigadeAgent
-from rcrs_ddcop.core.fireStationAgent import FireStationAgent
-from rcrs_ddcop.core.policeOfficeAgent import PoliceOfficeAgent
-from rcrs_ddcop.core.ambulanceCenterAgent import AmbulanceCenterAgent
+from rcrs_ddcop.core.policeForceAgent import PoliceForceAgent  # noqa
+from rcrs_ddcop.core.ambulanceTeamAgent import AmbulanceTeamAgent  # noqa
+from rcrs_ddcop.core.fireBrigadeAgent import FireBrigadeAgent  # noqa
+from rcrs_ddcop.core.fireStationAgent import FireStationAgent  # noqa
+from rcrs_ddcop.core.policeOfficeAgent import PoliceOfficeAgent  # noqa
+from rcrs_ddcop.core.ambulanceCenterAgent import AmbulanceCenterAgent  # noqa
 
 
 class Launcher:

@@ -154,6 +154,7 @@ class BDIAgent(object):
         Determines what the agent wants to do in the environment - its intention.
         :return:
         """
+        self.log.debug('started delibration...')
         # set time step or cycle properties
         self.latest_event_timestamp = datetime.datetime.now().timestamp()
         self._new_agents = set(self.agents_in_comm_range) - set(self.graph.neighbors)
@@ -185,7 +186,13 @@ class BDIAgent(object):
             self.comm.threadsafe_execution(self.graph.start_dcop)
 
         # wait for value section or timeout
-        self._value_selection_evt.wait()
+        self._value_selection_evt.wait(timeout=2)
+
+        # if no value is selected after timeout, select a random value
+        if self._value is None:
+            self.dcop.select_random_value()
+
+        self.log.debug('finished deliberation...')
         return self._value, self.dcop.cost
 
     def learn(self):

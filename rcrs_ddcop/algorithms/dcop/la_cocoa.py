@@ -92,7 +92,6 @@ class LA_CoCoA(DCOP):
         total_cost_dict = {}
 
         # perform dcop computations
-        self.log.info(f'Cost map: {self.cost_map}')
         for sender in self.cost_map:
             for val_self, val_sender, cost in self.cost_map[sender]:
                 if val_self in total_cost_dict:
@@ -112,6 +111,8 @@ class LA_CoCoA(DCOP):
             for val in total_cost_dict:
                 util = self.agent.unary_constraint(state_to_world(belief), val)
                 total_cost_dict[val]['cost'] += util
+
+            # predict next state and update belief for utility estimation
             belief.x = self.predict_next_state(belief)
 
         self.log.info(f'Total cost dict: {total_cost_dict}')
@@ -167,14 +168,14 @@ class LA_CoCoA(DCOP):
         ...
 
     def receive_cost_message(self, payload):
-        self.log.info(f'Received cost message: {payload}')
+        self.log.info(f'Received cost message')
         data = payload['payload']
         sender = data['agent_id']
         cost_map = data['cost_map']
         self.cost_map[sender] = cost_map
 
     def receive_inquiry_message(self, payload):
-        self.log.info(f'Received inquiry message: {payload}')
+        self.log.info(f'Received inquiry message')
         payload = payload['payload']
         sender = payload['agent_id']
         sender_domain = payload['domain']
@@ -235,4 +236,4 @@ class LA_CoCoA(DCOP):
         return x.detach()
 
     def __str__(self):
-        return 'cocoa'
+        return 'CoCoA'

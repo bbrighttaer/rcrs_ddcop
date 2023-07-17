@@ -107,7 +107,7 @@ class AmbulanceTeamAgent(Agent):
         return unburnt
 
     def think(self, time_step, change_set, heard):
-        self.Log.info(f'Time step {time_step}')
+        self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
             self.send_subscribe(time_step, [1, 2])
 
@@ -245,6 +245,17 @@ class AmbulanceTeamAgent(Agent):
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
 
+        # if no entity is found, check if the selected value corresponds to a civilian already assigned to an agent
+        # and give a large penalty.
+        if entity is None:
+            entity_pos = self.world_model.get_entity(EntityID(selected_value)).position.get_value()
+            entity_pos = self.world_model.get_entity(entity_pos)
+            if isinstance(entity_pos, AmbulanceTeamEntity):
+                return penalty * np.log(eps)
+
+        # if everything is fine, this assertion should be true
+        assert entity is not None, f'entity {selected_value} cannot be found'
+
         # distance
         score -= distance(entity.get_x(), entity.get_y(), self.me().get_x(), self.me().get_y()) / tau
 
@@ -255,7 +266,7 @@ class AmbulanceTeamAgent(Agent):
                 return score
 
         if isinstance(entity, Civilian):
-            # fieryness unary constraint
+            # fieryness of location unary constraint
             location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
             if isinstance(location, Building):
                 score += -np.log(max(eps, location.get_fieryness()))
