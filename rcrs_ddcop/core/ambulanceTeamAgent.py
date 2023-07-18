@@ -116,7 +116,7 @@ class AmbulanceTeamAgent(Agent):
         d = distance(*self._previous_position, *self.location().get_location())
         self._estimated_tau = alpha * self._estimated_tau + (1 - alpha) * d
 
-        # get visible entities
+        # get visible entity_ids
         change_set_entities = self.get_change_set_entities(list(change_set.changed.keys()))
 
         # update unexplored buildings
@@ -143,9 +143,17 @@ class AmbulanceTeamAgent(Agent):
 
         # share information with neighbors
         if self._cached_exp:
-            self.bdi_agent.experience_buffer.add((self._cached_exp, state))
+            s_prime = world_to_state(
+                world_model=self.world_model,
+                entity_ids=self._cached_exp.nodes_order,
+                edge_index=self._cached_exp.edge_index,
+            )
+            s_prime.nodes_order = self._cached_exp.nodes_order
+            s_prime.node_urns = self._cached_exp.node_urns
+
+            self.bdi_agent.experience_buffer.add((self._cached_exp, s_prime))
             self.bdi_agent.share_information(exp=[
-                state_to_dict(self._cached_exp), state_to_dict(state)
+                state_to_dict(self._cached_exp), state_to_dict(s_prime)
             ])
         self._cached_exp = state
 
@@ -168,8 +176,8 @@ class AmbulanceTeamAgent(Agent):
                 else:
                     self.Log.warning('Failed to plan path to refuge')
 
-        # if no civilian is visible or no one on board but at a refuge, explore environment
-        elif not civilians or isinstance(self.location(), Refuge):
+        # if no one is on board but at a refuge, explore environment
+        elif isinstance(self.location(), Refuge):
             self.send_search(time_step)
 
         else:  # if civilians are visible, deliberate on who to save

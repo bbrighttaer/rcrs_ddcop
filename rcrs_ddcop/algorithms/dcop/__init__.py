@@ -1,8 +1,6 @@
 import random
 from typing import Callable
 
-from rcrs_ddcop.algorithms.graph import DynaGraph
-
 
 class DCOP:
     """

@@ -1,7 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
+from rcrs_core.log.logger import Logger
+
+from rcrs_ddcop.core.data import process_data
+from rcrs_ddcop.core.experience import ExperienceBuffer
 
 
 class GCN(torch.nn.Module):
@@ -58,3 +63,46 @@ class NodeGCN(torch.nn.Module):
         x = self.conv4(x, edge_index)
 
         return x
+
+
+class train:
+    """Model training block"""
+
+    def __init__(self, model: NodeGCN):
+        self._model = model
+
+    def __enter__(self):
+        self._model.train()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._model.eval()
+
+
+class ModelTrainer:
+
+    def __init__(self, model: NodeGCN, experience_buffer: ExperienceBuffer, log: Logger, batch_size: int):
+        self.model = model
+        self.experience_buffer = experience_buffer
+        self.batch_size = batch_size
+        self.log = log
+
+    def __call__(self, *args, **kwargs):
+        """Trains the given model using data from the experience buffer"""
+
+        # ensure there is enough data to sample from
+        if len(self.experience_buffer) < self.batch_size * 2:
+            return
+
+        self.log.debug('Training initiated...')
+
+        # start training block
+        with train(self.model):
+            sampled_data = self.experience_buffer.sample(self.batch_size * 2)
+            dataset = process_data(sampled_data)
+            data_loader = DataLoader(dataset, batch_size=self.batch_size)
+
+            # training loop
+            for batch in data_loader:
+                ...
+
+

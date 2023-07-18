@@ -11,7 +11,7 @@ from torch_geometric.loader import DataLoader
 from rcrs_ddcop.algorithms.dcop import DCOP
 
 from rcrs_ddcop.core import data
-from rcrs_ddcop.core.data import SimulationDataset
+from rcrs_ddcop.core.data import PredictionDataset
 from rcrs_ddcop.core.nn import GCN
 
 
@@ -228,7 +228,7 @@ class LookAheadOptimization:
         sender = payload['agent_id']
         states_j = [data.dict_to_data(d) for d in payload['states']]
 
-        dataset = SimulationDataset(states_j)
+        dataset = PredictionDataset(states_j)
         data_loader = DataLoader(dataset, batch_size=len(states_j))
         sim_data = next(iter(data_loader))
         X = self.r_model(sim_data)

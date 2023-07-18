@@ -16,7 +16,7 @@ class BFSSearch:
         self.building_set = set()
         self.graph = defaultdict(set)
 
-        # construct graph from entities in the world
+        # construct graph from entity_ids in the world
         for entity in world_model.get_entities():
             if isinstance(entity, Area):
                 area_neighbors = entity.get_neighbours()

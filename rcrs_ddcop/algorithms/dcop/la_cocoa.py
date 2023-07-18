@@ -1,9 +1,10 @@
+import threading
+
 import numpy as np
-from torch_geometric.loader import DataLoader
 
 from rcrs_ddcop.algorithms.dcop import DCOP
-from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world, SimulationDataset
-from rcrs_ddcop.core.nn import NodeGCN
+from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
+from rcrs_ddcop.core.nn import NodeGCN, ModelTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -28,6 +29,14 @@ class LA_CoCoA(DCOP):
         self.look_ahead_model = NodeGCN(dim=7)
         self.bin_horizon_size = 1
         self.unary_horizon_size = 3
+        self._model_trainer = ModelTrainer(
+            model=self.look_ahead_model,
+            experience_buffer=self.agent.experience_buffer,
+            log=self.log,
+            batch_size=4,
+        )
+        self._time_step = 0
+        self._training_cycle = 5
 
     def on_time_step_changed(self):
         self.cost = None
@@ -37,6 +46,15 @@ class LA_CoCoA(DCOP):
         self.cost_map.clear()
         self.value = None
         self.neighbor_states.clear()
+        self._time_step += 1
+
+    def value_selection(self, val):
+        # check for model training time step
+        if self._time_step % self._training_cycle == 0:
+            threading.Thread(target=self._model_trainer).start()
+
+        # process value selection
+        super(LA_CoCoA, self).value_selection(val)
 
     def execute_dcop(self):
         self.log.info('Initiating CoCoA')
@@ -229,10 +247,7 @@ class LA_CoCoA(DCOP):
     def predict_next_state(self, belief):
         # predict next state
         self.look_ahead_model.eval()
-        dataset = SimulationDataset([belief])
-        data_loader = DataLoader(dataset, batch_size=1)
-        sim_data = next(iter(data_loader))
-        x = self.look_ahead_model(sim_data)
+        x = self.look_ahead_model(belief)
         return x.detach()
 
     def __str__(self):
