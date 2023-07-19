@@ -272,4 +272,7 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
+# tensorboard
+/runs
+
 # End of https://www.toptal.com/developers/gitignore/api/pycharm+all,python,jupyternotebooks

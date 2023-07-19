@@ -30,6 +30,7 @@ class LA_CoCoA(DCOP):
         self.bin_horizon_size = 1
         self.unary_horizon_size = 3
         self._model_trainer = ModelTrainer(
+            label=self.agent.agent_id,
             model=self.look_ahead_model,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,

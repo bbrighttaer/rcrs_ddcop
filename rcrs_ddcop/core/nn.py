@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
 from rcrs_core.log.logger import Logger
@@ -81,8 +82,9 @@ class train:
 
 class ModelTrainer:
 
-    def __init__(self, model: NodeGCN, experience_buffer: ExperienceBuffer, log: Logger, batch_size: int,
+    def __init__(self, label: str, model: NodeGCN, experience_buffer: ExperienceBuffer, log: Logger, batch_size: int,
                  epochs: int = 10, lr=0.01):
+        self.label = label
         self.model = model
         self.experience_buffer = experience_buffer
         self.batch_size = batch_size
@@ -90,6 +92,8 @@ class ModelTrainer:
         self.epochs = epochs
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.writer = SummaryWriter()
+        self.count = 0
 
     def __call__(self, *args, **kwargs):
         """Trains the given model using data from the experience buffer"""
@@ -116,8 +120,7 @@ class ModelTrainer:
                     losses.append(loss.item())
                     loss.backward()
 
-            self.log.debug(f'Average training loss = {np.mean(losses)}')
-
-
-
-
+            # metrics
+            avg_loss = np.mean(losses)
+            self.writer.add_scalars('Loss', {f'agent-{self.label}': avg_loss}, self.count)
+            self.count += 1
