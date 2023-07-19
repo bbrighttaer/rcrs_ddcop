@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -80,11 +81,15 @@ class train:
 
 class ModelTrainer:
 
-    def __init__(self, model: NodeGCN, experience_buffer: ExperienceBuffer, log: Logger, batch_size: int):
+    def __init__(self, model: NodeGCN, experience_buffer: ExperienceBuffer, log: Logger, batch_size: int,
+                 epochs: int = 10, lr=0.01):
         self.model = model
         self.experience_buffer = experience_buffer
         self.batch_size = batch_size
         self.log = log
+        self.epochs = epochs
+        self.criterion = torch.nn.MSELoss()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
     def __call__(self, *args, **kwargs):
         """Trains the given model using data from the experience buffer"""
@@ -101,8 +106,18 @@ class ModelTrainer:
             dataset = process_data(sampled_data)
             data_loader = DataLoader(dataset, batch_size=self.batch_size)
 
+            losses = []
+
             # training loop
-            for batch in data_loader:
-                ...
+            for i in range(self.epochs):
+                for batch in data_loader:
+                    output = self.model(batch)
+                    loss = self.criterion(output, batch.y)
+                    losses.append(loss.item())
+                    loss.backward()
+
+            self.log.debug(f'Average training loss = {np.mean(losses)}')
+
+
 
 
