@@ -1,6 +1,10 @@
 import threading
 
 import numpy as np
+import torch
+from sklearn.exceptions import NotFittedError
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils.validation import check_is_fitted
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
@@ -26,18 +30,24 @@ class LA_CoCoA(DCOP):
         self.state = self.IDLE
         self.neighbor_states = {}
         self.cost_map = {}
-        self.look_ahead_model = NodeGCN(dim=7)
+        self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
         self.unary_horizon_size = 3
+        self.normalizer = StandardScaler()
         self._model_trainer = ModelTrainer(
             label=self.agent.agent_id,
             model=self.look_ahead_model,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
-            batch_size=4,
+            batch_size=16,
+            lr=1e-3,
+            transform=self.normalizer,
         )
         self._time_step = 0
         self._training_cycle = 5
+
+    def _create_nn_model(self):
+        return NodeGCN(dim=7)
 
     def on_time_step_changed(self):
         self.cost = None
@@ -51,8 +61,9 @@ class LA_CoCoA(DCOP):
 
     def value_selection(self, val):
         # check for model training time step
-        if self._time_step % self._training_cycle == 0:
-            threading.Thread(target=self._model_trainer).start()
+        if not self._model_trainer.is_training:  # avoid multiple training calls
+            if self._time_step % self._training_cycle == 0:
+                threading.Thread(target=self._model_trainer).start()
 
         # process value selection
         super(LA_CoCoA, self).value_selection(val)
@@ -124,6 +135,11 @@ class LA_CoCoA(DCOP):
                         }
                     }
 
+        # copy current weights
+        model = self._create_nn_model()
+        model.load_state_dict(self.look_ahead_model.state_dict())
+        model.eval()
+
         # apply unary constraints
         belief = world_to_state(self.agent.belief)
         for i in range(self.unary_horizon_size):
@@ -132,7 +148,22 @@ class LA_CoCoA(DCOP):
                 total_cost_dict[val]['cost'] += util
 
             # predict next state and update belief for utility estimation
-            belief.x = self.predict_next_state(belief)
+            try:
+                check_is_fitted(self.normalizer)
+                # normalize
+                belief.x = torch.tensor(self.normalizer.transform(belief.x), dtype=torch.float)
+
+                # predict
+                belief.x = model(belief)
+
+                # revert normalization
+                belief.x = torch.tensor(
+                    self.normalizer.inverse_transform(belief.x.detach().numpy()),
+                    dtype=torch.float,
+                )
+            except NotFittedError:
+                # don't use model if no training has happened yet
+                break
 
         self.log.info(f'Total cost dict: {total_cost_dict}')
         if self.agent.optimization_op == 'max':
@@ -245,10 +276,10 @@ class LA_CoCoA(DCOP):
         self.log.info(f'Received execution request: {payload}')
         self.execute_dcop()
 
-    def predict_next_state(self, belief):
+    def predict_next_state(self, belief, model):
         # predict next state
-        self.look_ahead_model.eval()
-        x = self.look_ahead_model(belief)
+        model.eval()
+        x = model(belief)
         return x.detach()
 
     def __str__(self):

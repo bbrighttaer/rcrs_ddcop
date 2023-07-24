@@ -131,7 +131,8 @@ class AmbulanceTeamAgent(Agent):
 
         # get civilians to construct domain or set domain to civilian currently onboard
         civilians = self.get_civilians(change_set_entities)
-        buildings = self.get_buildings(change_set_entities)
+        # self.get_buildings(change_set_entities)
+        buildings = list(self.unexplored_buildings.values()) or self.get_buildings(self.world_model.get_entities())
         civilians = self._validate_civilians(civilians)
         domain = [c.get_id().get_value() for c in chain(civilians, buildings)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
@@ -180,7 +181,7 @@ class AmbulanceTeamAgent(Agent):
         elif isinstance(self.location(), Refuge):
             self.send_search(time_step)
 
-        else:  # if civilians are visible, deliberate on who to save
+        else:
             # execute thinking process
             agent_value, score = self.bdi_agent.deliberate(state)
             selected_entity = self.world_model.get_entity(EntityID(agent_value))
@@ -271,7 +272,7 @@ class AmbulanceTeamAgent(Agent):
             if self.seen_civilians:
                 return penalty * np.log(eps)
             else:
-                return score
+                return score * entity.get_fieryness()
 
         if isinstance(entity, Civilian):
             # fieryness of location unary constraint

@@ -2,10 +2,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from rcrs_core.log.logger import Logger
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
-from rcrs_core.log.logger import Logger
 
 from rcrs_ddcop.core.data import process_data
 from rcrs_ddcop.core.experience import ExperienceBuffer
@@ -83,7 +83,7 @@ class train:
 class ModelTrainer:
 
     def __init__(self, label: str, model: NodeGCN, experience_buffer: ExperienceBuffer, log: Logger, batch_size: int,
-                 epochs: int = 10, lr=0.01):
+                 epochs: int = 100, lr=0.01, transform=None):
         self.label = label
         self.model = model
         self.experience_buffer = experience_buffer
@@ -94,6 +94,8 @@ class ModelTrainer:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.writer = SummaryWriter()
         self.count = 0
+        self.normalizer = transform
+        self.is_training = False
 
     def __call__(self, *args, **kwargs):
         """Trains the given model using data from the experience buffer"""
@@ -103,11 +105,12 @@ class ModelTrainer:
             return
 
         self.log.debug('Training initiated...')
+        self.is_training = True
 
         # start training block
         with train(self.model):
             sampled_data = self.experience_buffer.sample(self.batch_size * 2)
-            dataset = process_data(sampled_data)
+            dataset = process_data(sampled_data, transform=self.normalizer)
             data_loader = DataLoader(dataset, batch_size=self.batch_size)
 
             losses = []
@@ -115,12 +118,29 @@ class ModelTrainer:
             # training loop
             for i in range(self.epochs):
                 for batch in data_loader:
+                    # reset gradient registries
+                    self.optimizer.zero_grad()
+
+                    # normalize data
+                    batch.x = torch.tensor(self.normalizer.transform(batch.x), dtype=torch.float)
+                    batch.y = torch.tensor(self.normalizer.transform(batch.y), dtype=torch.float)
+
+                    # forward pass
                     output = self.model(batch)
+
+                    # loss function
                     loss = self.criterion(output, batch.y)
                     losses.append(loss.item())
+
+                    # backward pass
                     loss.backward()
+
+                    # parameters update
+                    self.optimizer.step()
 
             # metrics
             avg_loss = np.mean(losses)
             self.writer.add_scalars('Loss', {f'agent-{self.label}': avg_loss}, self.count)
             self.count += 1
+
+        self.is_training = False

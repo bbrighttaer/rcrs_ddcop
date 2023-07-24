@@ -20,12 +20,16 @@ class Experience:
 class ExperienceBuffer:
     """Stores data for training models"""
 
-    def __init__(self, capacity: int = 1000):
+    def __init__(self, capacity: int = 1000, lbl: str = ''):
         self.memory = deque([], maxlen=capacity)
+        self.lbl = lbl
 
     def add(self, exp: List[List[Data]]) -> None:
         """Adds an experience to the buffer"""
         self.memory.append(exp)
+        # save
+        # if len(self) > 200:
+        #     torch.save(self.memory, f'{self.lbl}.pt')
 
     def sample(self, batch_size: int) -> List[List[Data]]:
         """

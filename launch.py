@@ -1,9 +1,12 @@
 import argparse
+import random
 import time
 import sys
 import os
 from multiprocessing import Process
 
+import torch
+import numpy as np
 from rcrs_core.connection.componentLauncher import ComponentLauncher
 from rcrs_core.constants.constants import DEFAULT_KERNEL_PORT_NUMBER, DEFAULT_KERNEL_HOST_NAME
 
@@ -13,6 +16,11 @@ from rcrs_ddcop.core.fireBrigadeAgent import FireBrigadeAgent  # noqa
 from rcrs_ddcop.core.fireStationAgent import FireStationAgent  # noqa
 from rcrs_ddcop.core.policeOfficeAgent import PoliceOfficeAgent  # noqa
 from rcrs_ddcop.core.ambulanceCenterAgent import AmbulanceCenterAgent  # noqa
+
+seed = 7
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
 
 
 class Launcher:

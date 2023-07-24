@@ -143,18 +143,26 @@ def dict_to_state(data: dict) -> Data:
     )
 
 
-def process_data(raw_data: list[list[Data]]) -> list[Data]:
+def process_data(raw_data: list[list[Data]], transform=None) -> list[Data]:
     data = []
+    transform_data = []
     for record in raw_data:
         state = record[0]
         s_prime = record[1]
 
+        # gather data for computing normalization statistics
+        transform_data.extend([state.x.numpy(), s_prime.x.numpy()])
+
         # create data and add it to the set
-        data.append(Data(
+        d_instance = Data(
             x=state.x,
             y=s_prime.x,
             edge_index=state.edge_index,
             nodes_order=state.nodes_order,
             node_urns=state.node_urns,
-        ))
+        )
+        data.append(d_instance)
+
+    # compute data normalization stats
+    transform.fit(np.concatenate(transform_data))
     return data

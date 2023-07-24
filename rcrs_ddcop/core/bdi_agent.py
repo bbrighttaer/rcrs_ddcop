@@ -32,7 +32,7 @@ class BDIAgent(object):
         self._terminate = False
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
-        self.experience_buffer = ExperienceBuffer()
+        self.experience_buffer = ExperienceBuffer(lbl=self.agent_id)
         self.unary_constraint = agent.unary_constraint
 
         # manages when control is returned to agent entity
@@ -174,7 +174,8 @@ class BDIAgent(object):
         self.log.info(
             f'parent={self.graph.parent}, '
             f'children={self.graph.children}, '
-            f'agents-in-range={self.agents_in_comm_range}'
+            f'agents-in-range={self.agents_in_comm_range}, '
+            f'domain={self.domain}'
         )
 
         # clear time step buffers
