@@ -1,4 +1,5 @@
 import threading
+from collections import defaultdict
 from itertools import chain
 from typing import List
 
@@ -11,6 +12,7 @@ from rcrs_core.entities.building import Building
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
 from rcrs_core.entities.refuge import Refuge
+from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
@@ -29,6 +31,7 @@ def distance(x1, y1, x2, y2):
 class AmbulanceTeamAgent(Agent):
     def __init__(self, pre):
         Agent.__init__(self, pre)
+        self.current_time_step = 0
         self.name = 'AmbulanceTeamAgent'
         self.bdi_agent = None
         self.search = None
@@ -36,8 +39,9 @@ class AmbulanceTeamAgent(Agent):
         self.refuges = set()
         self._previous_position = (0, 0)
         self._estimated_tau = 0
-        self.seen_civilians = False
+        self.can_rescue = False
         self._cached_exp = None
+        self._value_selection_freq = defaultdict(int)
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -53,6 +57,14 @@ class AmbulanceTeamAgent(Agent):
                 self.refuges.add(entity)
             elif isinstance(entity, Building):
                 self.unexplored_buildings[entity.entity_id] = entity
+
+    def check_rescue_task(self, civilians: List[Civilian]) -> bool:
+        """checks if a rescue operation exists"""
+        flags = [
+            isinstance(self.world_model.get_entity(civilian.position.get_value()), Building)
+            for civilian in civilians
+        ]
+        return max(flags) if civilians else False
 
     def _start_bdi_agent(self):
         # create BDI agent after RCRS agent is setup
@@ -111,6 +123,8 @@ class AmbulanceTeamAgent(Agent):
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
             self.send_subscribe(time_step, [1, 2])
 
+        self.current_time_step = time_step
+
         # estimate tau using exponential average
         alpha = 0.3
         d = distance(*self._previous_position, *self.location().get_location())
@@ -136,7 +150,9 @@ class AmbulanceTeamAgent(Agent):
         civilians = self._validate_civilians(civilians)
         domain = [c.get_id().get_value() for c in chain(civilians, buildings)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
-        self.seen_civilians = len(civilians) > 0
+
+        # check if there is a civilian to be rescued
+        self.can_rescue = self.check_rescue_task(civilians)
 
         # construct agent's state from world view
         state = world_to_state(self.world_model)
@@ -185,6 +201,9 @@ class AmbulanceTeamAgent(Agent):
             # execute thinking process
             agent_value, score = self.bdi_agent.deliberate(state)
             selected_entity = self.world_model.get_entity(EntityID(agent_value))
+
+            # update selected value's tally
+            self._value_selection_freq[agent_value] += 1
 
             if isinstance(selected_entity, Building):
                 self.Log.info(f'Time step {time_step}: selected building {selected_entity.entity_id.get_value()}')
@@ -246,7 +265,6 @@ class AmbulanceTeamAgent(Agent):
         return _cv
 
     def unary_constraint(self, context: WorldModel, selected_value):
-        score = 0
         eps = 1e-20
         penalty = 2
         tau = 1000 if self._estimated_tau == 0 else self._estimated_tau
@@ -260,27 +278,37 @@ class AmbulanceTeamAgent(Agent):
             entity_pos = self.world_model.get_entity(EntityID(selected_value)).position.get_value()
             entity_pos = self.world_model.get_entity(entity_pos)
             if isinstance(entity_pos, AmbulanceTeamEntity):
-                return penalty * np.log(eps)
+                return np.log(eps)
 
-        # if everything is fine, this assertion should be true
         assert entity is not None, f'entity {selected_value} cannot be found'
 
+        # exploration term
+        x = np.log(self.current_time_step) / max(1, self._value_selection_freq[selected_value])
+        score = np.sqrt(2 * len(self.bdi_agent.domain) * x)
+
         # distance
-        score -= distance(entity.get_x(), entity.get_y(), self.me().get_x(), self.me().get_y()) / tau
+        # score -= distance(entity.get_x(), entity.get_y(), self.me().get_x(), self.me().get_y()) / tau
 
         if isinstance(entity, Building):
-            if self.seen_civilians:
-                return penalty * np.log(eps)
+            if self.can_rescue:
+                return np.log(eps)
             else:
-                return score * entity.get_fieryness()
+                building_score = entity.get_fieryness() + entity.get_brokenness() + entity.get_temperature()
+                return score + np.log(max(1, building_score))
 
         if isinstance(entity, Civilian):
-            # fieryness of location unary constraint
             location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
             if isinstance(location, Building):
-                score += -np.log(max(eps, location.get_fieryness()))
+                location_score = location.get_fieryness() + location.get_brokenness() + location.get_temperature()
+                score += np.log(max(1, location_score))
 
-            # buriedness unary constraint
-            score -= np.log(max(entity.get_buriedness(), 1))
+                # buriedness unary constraint
+                score += np.log(max(1, entity.get_buriedness()))
+
+                # health points
+                score += -np.log(max(1, entity.get_hp()))
+
+            elif isinstance(location, Road):
+                return np.log(eps)
 
         return score

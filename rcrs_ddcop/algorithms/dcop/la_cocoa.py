@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import StandardScaler
-from sklearn.utils.validation import check_is_fitted
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
@@ -30,6 +29,7 @@ class LA_CoCoA(DCOP):
         self.state = self.IDLE
         self.neighbor_states = {}
         self.cost_map = {}
+        self.node_feature_dim = 6
         self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
         self.unary_horizon_size = 3
@@ -47,7 +47,7 @@ class LA_CoCoA(DCOP):
         self._training_cycle = 5
 
     def _create_nn_model(self):
-        return NodeGCN(dim=7)
+        return NodeGCN(dim=self.node_feature_dim)
 
     def on_time_step_changed(self):
         self.cost = None
@@ -65,7 +65,7 @@ class LA_CoCoA(DCOP):
             if self._time_step % self._training_cycle == 0:
                 threading.Thread(target=self._model_trainer).start()
 
-        # process value selection
+        # select value
         super(LA_CoCoA, self).value_selection(val)
 
     def execute_dcop(self):
@@ -121,7 +121,7 @@ class LA_CoCoA(DCOP):
         """
         total_cost_dict = {}
 
-        # perform dcop computations
+        # aggregate cost for each value in domain
         for sender in self.cost_map:
             for val_self, val_sender, cost in self.cost_map[sender]:
                 if val_self in total_cost_dict:
@@ -134,6 +134,10 @@ class LA_CoCoA(DCOP):
                             sender: val_sender,
                         }
                     }
+
+        # if cost map is empty then there is no neighbor around so construct dummy total_cost_dict
+        if not total_cost_dict:
+            total_cost_dict = {value: {'cost': 0., 'params': {}} for value in self.domain}
 
         # copy current weights
         model = self._create_nn_model()
@@ -149,7 +153,6 @@ class LA_CoCoA(DCOP):
 
             # predict next state and update belief for utility estimation
             try:
-                check_is_fitted(self.normalizer)
                 # normalize
                 belief.x = torch.tensor(self.normalizer.transform(belief.x), dtype=torch.float)
 
@@ -157,10 +160,9 @@ class LA_CoCoA(DCOP):
                 belief.x = model(belief)
 
                 # revert normalization
-                belief.x = torch.tensor(
-                    self.normalizer.inverse_transform(belief.x.detach().numpy()),
-                    dtype=torch.float,
-                )
+                x = self.normalizer.inverse_transform(belief.x.detach().numpy())
+                x = np.clip(x, a_min=0., a_max=None)
+                belief.x = torch.tensor(x, dtype=torch.float)
             except NotFittedError:
                 # don't use model if no training has happened yet
                 break
@@ -190,6 +192,11 @@ class LA_CoCoA(DCOP):
         self.params = best_params
         self.value_selection(self.value)
         # self.calculate_and_report_cost(best_params)
+
+    def select_random_value(self):
+        # call select_value to use look-ahead model
+        self.log.debug('Random value selection call')
+        self.select_value()
 
     def can_resolve_agent_value(self) -> bool:
         return self.state == self.ACTIVE \

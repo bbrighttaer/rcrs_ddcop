@@ -191,7 +191,8 @@ class BDIAgent(object):
 
         # if no value is selected after timeout, select a random value
         if self._value is None:
-            self.dcop.select_random_value()
+            self.comm.threadsafe_execution(self.dcop.select_random_value)
+            self._value_selection_evt.wait()
 
         self.log.debug('finished deliberation...')
         return self._value, self.dcop.cost

@@ -23,11 +23,11 @@ class FireBrigadeAgent(Agent):
 
         my_path = self.random_walk()
 
-        # self.send_rescue(time_step, target)
-        # self.send_say(time_step, 'HELP')
-        # self.send_speak(time_step, 'HELP meeeee police', 1)
+        # self.send_rescue(current_time_step, target)
+        # self.send_say(current_time_step, 'HELP')
+        # self.send_speak(current_time_step, 'HELP meeeee police', 1)
         self.send_move(time_step, my_path)
-        # self.send_rest(time_step)
+        # self.send_rest(current_time_step)
             
 
 

@@ -25,15 +25,6 @@ def _get_unburnt_neighbors(world_model: WorldModel, building: Building) -> list:
     return unburnt
 
 
-# def sync_states(states: list) -> Iterable[Data]:
-#     """
-#     Synchronizes the entities in the given states to ensure the same entities are in all states.
-#
-#     :param states: list of state objects
-#     :return: synchronized states
-#     """
-
-
 def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, edge_index: torch.Tensor = None) -> Data:
     """
     Extracts properties from the given world to construct a Pytorch Geometric (PyG) data instance.
@@ -77,18 +68,18 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
             node_features.append([
                                      entity.get_fieryness(),
                                      entity.get_temperature(),
-                                     # entity.get_total_area(),
-                                     entity.get_building_code(),
-                                     len(_get_unburnt_neighbors(world_model, entity)),
+                                     entity.get_brokenness(),
+                                     # entity.get_building_code(),
+                                     # len(_get_unburnt_neighbors(world_model, entity)),
                                  ] + [0.] * 3)
         elif isinstance(entity, Human):
-            node_features.append([0.] * 4 + [
+            node_features.append([0.] * 3 + [
                 entity.get_buriedness(),
                 entity.get_damage(),
                 entity.get_hp(),
             ])
         else:
-            node_features.append([0.] * 7)
+            node_features.append([0.] * 6)
 
     node_feat_arr = torch.tensor(node_features, dtype=torch.float)
     data = Data(
@@ -113,11 +104,11 @@ def state_to_world(data: Data) -> WorldModel:
         if isinstance(entity, Building):
             entity.set_fieryness(feat[0].item()),
             entity.set_temperature(feat[1].item()),
-            entity.set_building_code(feat[2].item())
+            entity.set_brokenness(feat[2].item())
         elif isinstance(entity, Human):
-            entity.set_buriedness(feat[4].item()),
-            entity.set_damage(feat[5].item()),
-            entity.set_hp(feat[6].item()),
+            entity.set_buriedness(feat[3].item()),
+            entity.set_damage(feat[4].item()),
+            entity.set_hp(feat[5].item()),
         world_model.add_entity(entity)
 
     return world_model

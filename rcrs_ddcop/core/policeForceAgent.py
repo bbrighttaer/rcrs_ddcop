@@ -29,10 +29,10 @@ class PoliceForceAgent(Agent):
                 self.send_clear(time_step, target)
                 return
                   
-        # self.send_say(time_step, 'HELP')
-        # self.send_speak(time_step, 'HELP meeeee police', 1)
+        # self.send_say(current_time_step, 'HELP')
+        # self.send_speak(current_time_step, 'HELP meeeee police', 1)
         self.send_move(time_step, my_path)
-        # self.send_rest(time_step)
+        # self.send_rest(current_time_step)
 
     def get_nearest_blockade(self):
         best_distance = sys.maxsize
