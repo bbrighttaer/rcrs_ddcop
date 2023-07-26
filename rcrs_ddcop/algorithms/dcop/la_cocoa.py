@@ -29,7 +29,7 @@ class LA_CoCoA(DCOP):
         self.state = self.IDLE
         self.neighbor_states = {}
         self.cost_map = {}
-        self.node_feature_dim = 6
+        self.node_feature_dim = 7
         self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
         self.unary_horizon_size = 3
@@ -119,6 +119,9 @@ class LA_CoCoA(DCOP):
         when value is set, send an UpdateStateMessage({agent_id, state=DONE, value})
         :return:
         """
+        if self.value:
+            return
+
         total_cost_dict = {}
 
         # aggregate cost for each value in domain

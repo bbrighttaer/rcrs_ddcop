@@ -128,6 +128,10 @@ class ModelTrainer:
                     # forward pass
                     output = self.model(batch)
 
+                    # zero-out building code prediction
+                    output[:, 3] = 0.
+                    batch.y[:, 3] = 0.
+
                     # loss function
                     loss = self.criterion(output, batch.y)
                     losses.append(loss.item())

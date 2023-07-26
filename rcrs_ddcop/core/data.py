@@ -69,17 +69,17 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
                                      entity.get_fieryness(),
                                      entity.get_temperature(),
                                      entity.get_brokenness(),
-                                     # entity.get_building_code(),
+                                     entity.get_building_code(),
                                      # len(_get_unburnt_neighbors(world_model, entity)),
                                  ] + [0.] * 3)
         elif isinstance(entity, Human):
-            node_features.append([0.] * 3 + [
+            node_features.append([0.] * 4 + [
                 entity.get_buriedness(),
                 entity.get_damage(),
                 entity.get_hp(),
             ])
         else:
-            node_features.append([0.] * 6)
+            node_features.append([0.] * 7)
 
     node_feat_arr = torch.tensor(node_features, dtype=torch.float)
     data = Data(
@@ -102,13 +102,14 @@ def state_to_world(data: Data) -> WorldModel:
             id=node_id
         )
         if isinstance(entity, Building):
-            entity.set_fieryness(feat[0].item()),
-            entity.set_temperature(feat[1].item()),
+            entity.set_fieryness(feat[0].item())
+            entity.set_temperature(feat[1].item())
             entity.set_brokenness(feat[2].item())
+            entity.set_building_code(feat[3].item())
         elif isinstance(entity, Human):
-            entity.set_buriedness(feat[3].item()),
-            entity.set_damage(feat[4].item()),
-            entity.set_hp(feat[5].item()),
+            entity.set_buriedness(feat[4].item())
+            entity.set_damage(feat[5].item())
+            entity.set_hp(feat[6].item())
         world_model.add_entity(entity)
 
     return world_model

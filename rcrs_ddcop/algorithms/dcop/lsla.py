@@ -11,7 +11,6 @@ from torch_geometric.loader import DataLoader
 from rcrs_ddcop.algorithms.dcop import DCOP
 
 from rcrs_ddcop.core import data
-from rcrs_ddcop.core.data import PredictionDataset
 from rcrs_ddcop.core.nn import GCN
 
 

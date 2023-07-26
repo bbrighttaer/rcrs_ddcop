@@ -25,7 +25,27 @@ SEARCH_ACTION = -1
 
 
 def distance(x1, y1, x2, y2):
+    """Calculates Manhattan distance"""
     return float(np.abs(x1 - x2) + np.abs(y1 - y2))
+
+
+def get_props(entity):
+    if isinstance(entity, Building):
+        data = {
+            'id': entity.get_id().get_value(),
+            'temperature': entity.get_temperature(),
+            'brokenness': entity.get_brokenness(),
+            'fieryness': entity.get_fieryness(),
+            'building code': entity.get_building_code(),
+        }
+    elif isinstance(entity, Civilian):
+        data = {
+            'id': entity.get_id().get_value(),
+            'buriedness': entity.get_buriedness(),
+            'damage': entity.get_damage(),
+            'hp': entity.get_hp(),
+        }
+    return data
 
 
 class AmbulanceTeamAgent(Agent):
@@ -36,8 +56,8 @@ class AmbulanceTeamAgent(Agent):
         self.bdi_agent = None
         self.search = None
         self.unexplored_buildings = {}
-        self.refuges = set()
-        self._previous_position = (0, 0)
+        self.refuge_ids = set()
+        self._previous_position = None
         self._estimated_tau = 0
         self.can_rescue = False
         self._cached_exp = None
@@ -51,17 +71,18 @@ class AmbulanceTeamAgent(Agent):
         threading.Thread(target=self._start_bdi_agent, daemon=True).start()
         self.search = BFSSearch(self.world_model)
 
-        # get buildings and refuges in the environment
+        # get buildings and refuge_ids in the environment
         for entity in self.world_model.get_entities():
             if isinstance(entity, Refuge):
-                self.refuges.add(entity)
+                self.refuge_ids.add(entity.entity_id)
+
             elif isinstance(entity, Building):
                 self.unexplored_buildings[entity.entity_id] = entity
 
     def check_rescue_task(self, civilians: List[Civilian]) -> bool:
         """checks if a rescue operation exists"""
         flags = [
-            isinstance(self.world_model.get_entity(civilian.position.get_value()), Building)
+            civilian.get_buriedness() < 60 and civilian.get_hp() < 10000
             for civilian in civilians
         ]
         return max(flags) if civilians else False
@@ -108,6 +129,12 @@ class AmbulanceTeamAgent(Agent):
         for entity in entities:
             if isinstance(entity, Refuge):
                 refuges.append(entity)
+        refuges = sorted(refuges, key=lambda e: distance(
+            x1=self.world_model.get_entity(e.entity_id).get_x(),
+            y1=self.world_model.get_entity(e.entity_id).get_y(),
+            x2=self.me().get_x(),
+            y2=self.me().get_y()
+        ))
         return refuges
 
     def _get_unburnt_neighbors(self, building: Building):
@@ -127,8 +154,10 @@ class AmbulanceTeamAgent(Agent):
 
         # estimate tau using exponential average
         alpha = 0.3
-        d = distance(*self._previous_position, *self.location().get_location())
-        self._estimated_tau = alpha * self._estimated_tau + (1 - alpha) * d
+        if self._previous_position:
+            d = distance(*self._previous_position, *self.location().get_location())
+            self._estimated_tau = alpha * self._estimated_tau + (1 - alpha) * d
+        self._previous_position = self.location().get_location()
 
         # get visible entity_ids
         change_set_entities = self.get_change_set_entities(list(change_set.changed.keys()))
@@ -146,7 +175,7 @@ class AmbulanceTeamAgent(Agent):
         # get civilians to construct domain or set domain to civilian currently onboard
         civilians = self.get_civilians(change_set_entities)
         # self.get_buildings(change_set_entities)
-        buildings = list(self.unexplored_buildings.values()) or self.get_buildings(self.world_model.get_entities())
+        buildings = self.get_buildings(self.world_model.get_entities())
         civilians = self._validate_civilians(civilians)
         domain = [c.get_id().get_value() for c in chain(civilians, buildings)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
@@ -184,10 +213,7 @@ class AmbulanceTeamAgent(Agent):
                 self.send_unload(time_step)
             else:
                 # continue journey to refuge
-                refuges = self.get_refuges(change_set_entities)  # preference for a close refuge
-                refuges = refuges if refuges else self.refuges
-                refuge_entity_IDs = [r.get_id() for r in refuges]
-                path = self.search.breadth_first_search(self.location().get_id(), refuge_entity_IDs)
+                path = self.search.breadth_first_search(self.location().get_id(), self.refuge_ids)
                 if path:
                     self.send_move(time_step, path)
                 else:
@@ -196,7 +222,6 @@ class AmbulanceTeamAgent(Agent):
         # if no one is on board but at a refuge, explore environment
         elif isinstance(self.location(), Refuge):
             self.send_search(time_step)
-
         else:
             # execute thinking process
             agent_value, score = self.bdi_agent.deliberate(state)
@@ -267,7 +292,7 @@ class AmbulanceTeamAgent(Agent):
     def unary_constraint(self, context: WorldModel, selected_value):
         eps = 1e-20
         penalty = 2
-        tau = 1000 if self._estimated_tau == 0 else self._estimated_tau
+        tau = 10000.   # if self._estimated_tau == 0 else self._estimated_tau
 
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
@@ -282,33 +307,43 @@ class AmbulanceTeamAgent(Agent):
 
         assert entity is not None, f'entity {selected_value} cannot be found'
 
+        # distance
+        score = distance(
+            x1=self.world_model.get_entity(entity.entity_id).get_x(),
+            y1=self.world_model.get_entity(entity.entity_id).get_y(),
+            x2=self.me().get_x(),
+            y2=self.me().get_y()
+        ) / tau
+        score = -np.log(score + eps)
+
         # exploration term
         x = np.log(self.current_time_step) / max(1, self._value_selection_freq[selected_value])
-        score = np.sqrt(2 * len(self.bdi_agent.domain) * x)
+        score += np.sqrt(2 * len(self.bdi_agent.domain) * x)
 
-        # distance
-        # score -= distance(entity.get_x(), entity.get_y(), self.me().get_x(), self.me().get_y()) / tau
-
+        # Building score
         if isinstance(entity, Building):
-            if self.can_rescue:
+            if self.can_rescue or entity.get_id().get_value() == self.location().get_id().get_value():
                 return np.log(eps)
-            else:
-                building_score = entity.get_fieryness() + entity.get_brokenness() + entity.get_temperature()
-                return score + np.log(max(1, building_score))
+            return score + self._get_building_score(entity)
 
+        # Civilian score
         if isinstance(entity, Civilian):
             location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
             if isinstance(location, Building):
-                location_score = location.get_fieryness() + location.get_brokenness() + location.get_temperature()
-                score += np.log(max(1, location_score))
+                score += self._get_building_score(location)
 
-                # buriedness unary constraint
+            # buriedness unary constraint
+            if entity.get_buriedness() < 60:
                 score += np.log(max(1, entity.get_buriedness()))
 
-                # health points
-                score += -np.log(max(1, entity.get_hp()))
-
-            elif isinstance(location, Road):
-                return np.log(eps)
+            # health points
+            score += (1 - entity.get_hp() / 10000)
 
         return score
+
+    def _get_building_score(self, building: Building) -> float:
+        """scores a given building by considering its building material and other building properties"""
+        building_code = self.world_model.get_entity(building.entity_id).get_building_code()
+        building_code_score = - np.log(building_code + 1e-5)
+        building_score = building.get_fieryness() + building.get_brokenness() + building.get_temperature()
+        return np.log(max(1, building_score)) + building_code_score
