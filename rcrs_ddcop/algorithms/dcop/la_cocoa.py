@@ -35,7 +35,7 @@ class LA_CoCoA(DCOP):
         self.unary_horizon_size = 3
         self.normalizer = StandardScaler()
         self._model_trainer = ModelTrainer(
-            label=self.agent.agent_id,
+            label=self.label,
             model=self.look_ahead_model,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
@@ -151,8 +151,11 @@ class LA_CoCoA(DCOP):
         belief = world_to_state(self.agent.belief)
         for i in range(self.unary_horizon_size):
             for val in total_cost_dict:
-                util = self.agent.unary_constraint(state_to_world(belief), val)
-                total_cost_dict[val]['cost'] += util
+                try:
+                    util = self.agent.unary_constraint(state_to_world(belief), val)
+                    total_cost_dict[val]['cost'] += util
+                except AttributeError as e:
+                    pass
 
             # predict next state and update belief for utility estimation
             try:

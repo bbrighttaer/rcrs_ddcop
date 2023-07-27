@@ -144,7 +144,7 @@ class ModelTrainer:
 
             # metrics
             avg_loss = np.mean(losses)
-            self.writer.add_scalars('Loss', {f'agent-{self.label}': avg_loss}, self.count)
+            self.writer.add_scalars('Loss', {self.label: avg_loss}, self.count)
             self.count += 1
 
         self.is_training = False

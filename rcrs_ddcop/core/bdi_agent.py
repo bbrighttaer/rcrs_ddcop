@@ -19,10 +19,11 @@ class BDIAgent(object):
     """
 
     def __init__(self, agent: Agent):
+        self.agent_id = agent.agent_id.get_value()
+        self.label = f'{agent.name}_{self.agent_id}'
         self.latest_event_timestamp = None
         self.belief = agent.world_model
         self.log = agent.Log
-        self.agent_id = agent.agent_id.get_value()
         self._domain = []
         self._state = None
         self._agents_in_comm_range = []
@@ -32,7 +33,7 @@ class BDIAgent(object):
         self._terminate = False
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
-        self.experience_buffer = ExperienceBuffer(lbl=self.agent_id)
+        self.experience_buffer = ExperienceBuffer(lbl=self.label)
         self.unary_constraint = agent.unary_constraint
 
         # manages when control is returned to agent entity
@@ -41,7 +42,7 @@ class BDIAgent(object):
         # create instances of main components
         self.comm = AgentPseudoComm(agent, self.handle_message)
         self.graph = DIGCA(self)
-        self.dcop = LA_CoCoA(self, self.on_value_selected)
+        self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
     @property
     def domain(self):

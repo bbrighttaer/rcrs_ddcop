@@ -12,7 +12,6 @@ from rcrs_core.entities.building import Building
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
 from rcrs_core.entities.refuge import Refuge
-from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
@@ -20,32 +19,7 @@ from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
-
-SEARCH_ACTION = -1
-
-
-def distance(x1, y1, x2, y2):
-    """Calculates Manhattan distance"""
-    return float(np.abs(x1 - x2) + np.abs(y1 - y2))
-
-
-def get_props(entity):
-    if isinstance(entity, Building):
-        data = {
-            'id': entity.get_id().get_value(),
-            'temperature': entity.get_temperature(),
-            'brokenness': entity.get_brokenness(),
-            'fieryness': entity.get_fieryness(),
-            'building code': entity.get_building_code(),
-        }
-    elif isinstance(entity, Civilian):
-        data = {
-            'id': entity.get_id().get_value(),
-            'buriedness': entity.get_buriedness(),
-            'damage': entity.get_damage(),
-            'hp': entity.get_hp(),
-        }
-    return data
+from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings, get_civilians
 
 
 class AmbulanceTeamAgent(Agent):
@@ -82,13 +56,13 @@ class AmbulanceTeamAgent(Agent):
     def check_rescue_task(self, civilians: List[Civilian]) -> bool:
         """checks if a rescue operation exists"""
         flags = [
-            civilian.get_buriedness() < 60 and civilian.get_hp() < 10000
+            civilian.get_hp() > 0 and civilian.get_buriedness() == 0
             for civilian in civilians
         ]
         return max(flags) if civilians else False
 
     def _start_bdi_agent(self):
-        # create BDI agent after RCRS agent is setup
+        """create BDI agent after RCRS agent is setup"""
         self.bdi_agent = BDIAgent(self)
         self.bdi_agent()
 
@@ -109,20 +83,6 @@ class AmbulanceTeamAgent(Agent):
             if isinstance(entity, AmbulanceTeamEntity) and entity.entity_id != self.agent_id:
                 neighbors.append(entity.entity_id.get_value())
         return neighbors
-
-    def get_civilians(self, entities: List[Entity]) -> List[Civilian]:
-        civilians = []
-        for entity in entities:
-            if isinstance(entity, Civilian):
-                civilians.append(entity)
-        return civilians
-
-    def get_buildings(self, entities: List[Entity]) -> List[Building]:
-        buildings = []
-        for entity in entities:
-            if isinstance(entity, Building):
-                buildings.append(entity)
-        return buildings
 
     def get_refuges(self, entities: List[Entity]) -> List[Refuge]:
         refuges = []
@@ -173,9 +133,9 @@ class AmbulanceTeamAgent(Agent):
         on_board_civilian = self.get_civilian_on_board()
 
         # get civilians to construct domain or set domain to civilian currently onboard
-        civilians = self.get_civilians(change_set_entities)
+        civilians = get_civilians(change_set_entities)
         # self.get_buildings(change_set_entities)
-        buildings = self.get_buildings(self.world_model.get_entities())
+        buildings = get_buildings(self.world_model.get_entities())
         civilians = self._validate_civilians(civilians)
         domain = [c.get_id().get_value() for c in chain(civilians, buildings)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
@@ -292,7 +252,7 @@ class AmbulanceTeamAgent(Agent):
     def unary_constraint(self, context: WorldModel, selected_value):
         eps = 1e-20
         penalty = 2
-        tau = 10000.   # if self._estimated_tau == 0 else self._estimated_tau
+        tau = 10000.  # if self._estimated_tau == 0 else self._estimated_tau
 
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
@@ -304,8 +264,6 @@ class AmbulanceTeamAgent(Agent):
             entity_pos = self.world_model.get_entity(entity_pos)
             if isinstance(entity_pos, AmbulanceTeamEntity):
                 return np.log(eps)
-
-        assert entity is not None, f'entity {selected_value} cannot be found'
 
         # distance
         score = distance(
@@ -324,26 +282,20 @@ class AmbulanceTeamAgent(Agent):
         if isinstance(entity, Building):
             if self.can_rescue or entity.get_id().get_value() == self.location().get_id().get_value():
                 return np.log(eps)
-            return score + self._get_building_score(entity)
+            return score + get_building_score(self.world_model, entity)
 
         # Civilian score
-        if isinstance(entity, Civilian):
+        if isinstance(entity, Civilian) and entity.get_hp() > 0 and entity.get_buriedness() == 0:
             location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
             if isinstance(location, Building):
-                score += self._get_building_score(location)
+                score += get_building_score(self.world_model, location)
 
             # buriedness unary constraint
-            if entity.get_buriedness() < 60:
+            if entity.get_buriedness() > 0:
                 score += np.log(max(1, entity.get_buriedness()))
 
             # health points
             score += (1 - entity.get_hp() / 10000)
-
-        return score
-
-    def _get_building_score(self, building: Building) -> float:
-        """scores a given building by considering its building material and other building properties"""
-        building_code = self.world_model.get_entity(building.entity_id).get_building_code()
-        building_code_score = - np.log(building_code + 1e-5)
-        building_score = building.get_fieryness() + building.get_brokenness() + building.get_temperature()
-        return np.log(max(1, building_score)) + building_code_score
+            return score
+        else:
+            return np.log(eps)

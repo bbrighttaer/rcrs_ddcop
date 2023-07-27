@@ -9,7 +9,8 @@ class DCOP:
     traversing_order = None
     name = 'dcop-base'
 
-    def __init__(self, agent, on_value_selected: Callable):
+    def __init__(self, agent, on_value_selected: Callable, label: str = None):
+        self.label = label or agent.agent_id
         self.log = agent.log
         self.agent = agent
         self.graph = self.agent.graph
