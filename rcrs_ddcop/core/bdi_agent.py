@@ -34,6 +34,9 @@ class BDIAgent(object):
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
         self.experience_buffer = ExperienceBuffer(lbl=self.label)
+
+        # agent-type constraint functions
+        self.agent_type_neighbor_constraint = agent.neighbor_constraint
         self.unary_constraint = agent.unary_constraint
 
         # manages when control is returned to agent entity
@@ -120,21 +123,12 @@ class BDIAgent(object):
     def belief_revision_function(self):
         ...
 
-    def neighbor_constraint(self, context: WorldModel, agent_vals: dict):
+    def neighbor_constraint(self, *args, **kwargs):
         """
         The desire is to optimize the objective functions in its neighborhood.
         :return:
         """
-        score = 0
-        penalty = 2
-        agent_vals = dict(agent_vals)
-        selected_value = agent_vals.pop(self.agent_id)
-        neighbor_value = list(agent_vals.values())[0]
-
-        # coordination constraint
-        score -= penalty if selected_value == neighbor_value else 0
-
-        return score
+        return self.agent_type_neighbor_constraint(*args, **kwargs)
 
     def share_information(self, **kwargs):
         """

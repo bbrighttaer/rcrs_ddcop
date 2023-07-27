@@ -271,3 +271,17 @@ class FireBrigadeAgent(Agent):
             return np.log(eps)
 
         return score
+
+    def neighbor_constraint(self, context: WorldModel, agent_vals: dict):
+        """
+        The desire is to optimize the objective functions in its neighborhood.
+        :return:
+        """
+        agent_vals = dict(agent_vals)
+        selected_value = agent_vals.pop(self.agent_id.get_value())
+        neighbor_value = list(agent_vals.values())[0]
+
+        # coordination constraint
+        score = 10 if selected_value == neighbor_value else 0
+
+        return score
