@@ -10,6 +10,7 @@ from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
 from rcrs_ddcop.core.data import dict_to_state
+from rcrs_ddcop.core.enums import InfoSharingType
 from rcrs_ddcop.core.experience import ExperienceBuffer
 
 
@@ -134,14 +135,28 @@ class BDIAgent(object):
         """
         Shares information with neighbors
         """
-        self.comm.share_information_with_neighbors(
-            neighbor_ids=self.graph.neighbors,
+        self.comm.share_information_with_agents(
+            agent_ids=self.graph.neighbors,
             data={
                 'agent_id': self.agent_id,
                 'domain': self._domain,
                 'previous_value': self._previous_value,
                 **kwargs,
             },
+            sharing_type=InfoSharingType.STATE_SHARING,
+        )
+
+    def share_buried_entities_information(self, agent_ids: list, data):
+        """
+        Shares information of buried entities with the given agents
+        """
+        self.comm.share_information_with_agents(
+            agent_ids=agent_ids,
+            data={
+                'agent_id': self.agent_id,
+                'buried_info': data,
+            },
+            sharing_type=InfoSharingType.BURIED_HUMAN_SHARING,
         )
 
     def deliberate(self, state):
@@ -251,7 +266,10 @@ class BDIAgent(object):
 
             # Other agent communication
             case messaging.AgentMsgTypes.SHARED_INFO:
-                self.receive_shared_info(message)
+                self.receive_shared_info(message, InfoSharingType.STATE_SHARING)
+
+            case messaging.AgentMsgTypes.SHARED_BURIED_ENTITIES:
+                self.receive_shared_info(message, InfoSharingType.BURIED_HUMAN_SHARING)
 
             # LSLA message handling
             case messaging.LSLAMsgTypes.LSLA_INQUIRY_MESSAGE:
@@ -263,18 +281,22 @@ class BDIAgent(object):
             case _:
                 self.log.info(f'Could not handle received payload: {message}')
 
-    def receive_shared_info(self, message: dict):
+    def receive_shared_info(self, message: dict, message_type: InfoSharingType):
         self.log.info(f'Received shared message')
         data = message['payload']
         sender = data['agent_id']
-        shared_exp = data.get('exp')
-        self.add_neighbor_domain(sender, data['domain'])
-        self.add_neighbor_previous_value(sender, data['previous_value'])
 
-        if shared_exp:
-            self.experience_buffer.add(
-                exp=[dict_to_state(shared_exp[0]), dict_to_state(shared_exp[1])],
-            )
+        if message_type == InfoSharingType.STATE_SHARING:
+            shared_exp = data.get('exp')
+            self.add_neighbor_domain(sender, data['domain'])
+            self.add_neighbor_previous_value(sender, data['previous_value'])
+
+            if shared_exp:
+                self.experience_buffer.add(
+                    exp=[dict_to_state(shared_exp[0]), dict_to_state(shared_exp[1])],
+                )
+        elif message_type == InfoSharingType.BURIED_HUMAN_SHARING:
+            self.log.info(f'Shared buried data: {data}')
 
     def __call__(self, *args, **kwargs):
         self.log.info(f'Initializing agent {self.agent_id}')

@@ -11,6 +11,7 @@ from rcrs_core.entities.ambulanceTeam import AmbulanceTeamEntity
 from rcrs_core.entities.building import Building
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
+from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.refuge import Refuge
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
@@ -19,7 +20,8 @@ from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
-from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings, get_civilians
+from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings, get_civilians, get_buried_humans, \
+    buried_humans_to_dict
 
 
 class AmbulanceTeamAgent(Agent):
@@ -105,12 +107,28 @@ class AmbulanceTeamAgent(Agent):
                 unburnt.append(entity)
         return unburnt
 
+    def get_fire_brigade_ids(self) -> List[int]:
+        fb_ids = []
+        for entity in self.world_model.get_entities():
+            if isinstance(entity, FireBrigadeEntity):
+                fb_ids.append(entity.get_id().get_value())
+        return fb_ids
+
+    def share_buried_humans(self):
+        buried_data = buried_humans_to_dict(get_buried_humans(self.world_model))
+        if buried_data:
+            receiver_ids = self.get_fire_brigade_ids()
+            self.bdi_agent.share_buried_entities_information(receiver_ids, buried_data)
+
     def think(self, time_step, change_set, heard):
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
             self.send_subscribe(time_step, [1, 2])
 
         self.current_time_step = time_step
+
+        # share buried humans, if any
+        self.share_buried_humans()
 
         # estimate tau using exponential average
         alpha = 0.3
@@ -251,7 +269,6 @@ class AmbulanceTeamAgent(Agent):
 
     def unary_constraint(self, context: WorldModel, selected_value):
         eps = 1e-20
-        penalty = 2
         tau = 10000.  # if self._estimated_tau == 0 else self._estimated_tau
 
         # get entity from context (given world)
@@ -305,13 +322,12 @@ class AmbulanceTeamAgent(Agent):
         The desire is to optimize the objective functions in its neighborhood.
         :return:
         """
-        score = 0
-        penalty = 2
+        points = 10
         agent_vals = dict(agent_vals)
         selected_value = agent_vals.pop(self.agent_id.get_value())
         neighbor_value = list(agent_vals.values())[0]
 
         # coordination constraint
-        score -= penalty if selected_value == neighbor_value else 0
+        score = -points if selected_value == neighbor_value else points
 
         return score

@@ -1,9 +1,12 @@
 from typing import List
 
 import numpy as np
+from rcrs_core.entities import standardEntityFactory
 from rcrs_core.entities.building import Building
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
+from rcrs_core.entities.human import Human
+from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
 
@@ -53,3 +56,51 @@ def get_civilians(entities: List[Entity]) -> List[Civilian]:
         if isinstance(entity, Civilian):
             civilians.append(entity)
     return civilians
+
+
+def get_buried_humans(world_model: WorldModel) -> List[Human]:
+    """Gets the list of human entities that are buried in the given world"""
+    buried = []
+    for entity in world_model.get_entities():
+        if isinstance(entity, Human) and entity.get_hp() > 0 \
+                and (entity.get_damage() > 0 or entity.get_buriedness() > 0):
+            buried.append(entity)
+    return buried
+
+
+def buried_humans_to_dict(humans: List[Human]) -> dict:
+    """Parse the given humans to dict object"""
+    data = {}
+    for h in humans:
+        data[h.get_id().get_value()] = {
+            'urn': h.get_urn(),
+            'x': h.get_x(),
+            'y': h.get_y(),
+            'damage': h.get_damage(),
+            'buriedness': h.get_buriedness(),
+            'stamina': h.get_stamina(),
+            'travel_distance': h.get_travel_distance(),
+            'direction': h.get_direction(),
+            'hp': h.get_hp(),
+        }
+    return data
+
+
+def humans_dict_to_instances(humans_dict: dict) -> List[Human]:
+    """Converts the given Human dict to Human objects"""
+    humans = []
+    for h_id, props in humans_dict.items():
+        entity: Human = standardEntityFactory.StandardEntityFactory.make_entity(
+            urn=props['urn'],
+            id=h_id,
+        )
+        entity.set_x(props['x'])
+        entity.set_y(props['y'])
+        entity.set_damage(props['damage'])
+        entity.set_buriedness(props['buriedness'])
+        entity.set_stamina(props['stamina'])
+        entity.set_travel_distance(props['travel_distance'])
+        entity.set_direction(props['direction'])
+        entity.set_hp(props['hp'])
+        humans.append(entity)
+    return humans

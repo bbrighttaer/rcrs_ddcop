@@ -8,6 +8,7 @@ from strenum import StrEnum
 class AgentMsgTypes(StrEnum):
     TEST = auto()
     SHARED_INFO = auto()
+    SHARED_BURIED_ENTITIES = auto()
 
 
 class DIGCAMsgTypes(StrEnum):
@@ -124,3 +125,7 @@ def create_lsla_inquiry_message(data):
 
 def create_lsla_util_message(data):
     return _create_msg(LSLAMsgTypes.LSLA_UTIL_MESSAGE, data)
+
+
+def create_shared_buried_entities_info_message(data):
+    return _create_msg(AgentMsgTypes.SHARED_BURIED_ENTITIES, data)

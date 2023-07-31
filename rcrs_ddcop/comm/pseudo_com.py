@@ -5,6 +5,7 @@ import pika
 from rcrs_core.agents.agent import Agent
 
 from rcrs_ddcop.comm import messaging
+from rcrs_ddcop.core.enums import InfoSharingType
 
 BROKER_URL = '127.0.0.1'
 BROKER_PORT = 5672
@@ -199,16 +200,30 @@ class AgentPseudoComm(object):
             body=messaging.create_inquiry_message(data),
         )
 
-    def share_information_with_neighbors(self, neighbor_ids: List[int], data: dict):
-        self.threadsafe_execution(
-            functools.partial(self._info_sharing_thread_safe, neighbor_ids, data),
-        )
+    def share_information_with_agents(self, agent_ids: List[int], data: dict, sharing_type: InfoSharingType):
+        func = None
+        if sharing_type == InfoSharingType.STATE_SHARING:
+            func = self._info_sharing_thread_safe
+        elif sharing_type == InfoSharingType.BURIED_HUMAN_SHARING:
+            func = self._share_buried_entity_data_thread_safe
+
+        if func:
+            self.threadsafe_execution(
+                functools.partial(func, agent_ids, data),
+            )
 
     def _info_sharing_thread_safe(self, neighbor_ids: List[int], data: dict):
         for neighbor in neighbor_ids:
             self._send_to_agent(
                 agent_id=neighbor,
                 body=messaging.create_shared_info_message(data),
+            )
+
+    def _share_buried_entity_data_thread_safe(self, neighbor_ids: List[int], data: dict):
+        for neighbor in neighbor_ids:
+            self._send_to_agent(
+                agent_id=neighbor,
+                body=messaging.create_shared_buried_entities_info_message(data),
             )
 
     def threadsafe_execution(self, func: Callable):

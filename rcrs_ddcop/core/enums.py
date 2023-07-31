@@ -19,3 +19,6 @@ class BuildingMaterial(enum.IntEnum):
     CONCRETE = 2
 
 
+class InfoSharingType(enum.IntEnum):
+    STATE_SHARING = 0
+    BURIED_HUMAN_SHARING = 1
