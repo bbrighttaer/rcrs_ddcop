@@ -39,8 +39,8 @@ class LA_CoCoA(DCOP):
             model=self.look_ahead_model,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
-            batch_size=16,
-            lr=1e-3,
+            batch_size=32,
+            lr=6e-3,
             transform=self.normalizer,
         )
         self._time_step = 0

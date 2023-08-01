@@ -2,10 +2,13 @@ from typing import List
 
 import numpy as np
 from rcrs_core.entities import standardEntityFactory
+from rcrs_core.entities.ambulanceTeam import AmbulanceTeamEntity
 from rcrs_core.entities.building import Building
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
+from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.human import Human
+from rcrs_core.entities.refuge import Refuge
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
@@ -104,3 +107,42 @@ def humans_dict_to_instances(humans_dict: dict) -> List[Human]:
         entity.set_hp(props['hp'])
         humans.append(entity)
     return humans
+
+
+def get_agents_in_comm_range_ids(agent_id, entities: List[Entity]) -> List[Entity]:
+    """Gets the list of agents within communication (perception) range of the given agent"""
+    neighbors = []
+    for entity in entities:
+        if entity.entity_id != agent_id \
+                and (isinstance(entity, AmbulanceTeamEntity) or isinstance(entity, FireBrigadeEntity)):
+            neighbors.append(entity.entity_id.get_value())
+    return neighbors
+
+
+def neighbor_constraint(agent_id: int, context: WorldModel, agent_vals: dict):
+    """Coordination constraint"""
+    points = 10
+    agent_vals = dict(agent_vals)
+
+    agent_selected_value = agent_vals.pop(agent_id.get_value())
+    agent_entity = context.get_entity(agent_id)
+
+    neighbor_value = list(agent_vals.values())[0]
+    neighbor_id = list(agent_vals.keys())[0]
+    neighbor_entity = context.get_entity(EntityID(neighbor_id))
+
+    # ambulance - ambulance relationship
+    if isinstance(agent_entity, AmbulanceTeamEntity) and isinstance(neighbor_entity, AmbulanceTeamEntity):
+        score = -points if agent_selected_value == neighbor_value else points
+        return score
+
+    # fire brigade - fire brigade relationship
+    elif isinstance(agent_entity, FireBrigadeEntity) and isinstance(neighbor_entity, FireBrigadeEntity):
+        score = points if agent_selected_value == neighbor_value else -points
+        return score
+
+    # ambulance - fire brigade relationship
+    else:
+        return points * 0.6
+
+    # raise ValueError(f'Entity {neighbor_entity} could not be found in world model')

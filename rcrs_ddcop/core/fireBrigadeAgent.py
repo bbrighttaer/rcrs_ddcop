@@ -5,7 +5,8 @@ from typing import List
 
 import numpy as np
 from rcrs_core.agents.agent import Agent
-from rcrs_core.connection import URN
+from rcrs_core.commands.Command import Command
+from rcrs_core.connection import URN, RCRSProto_pb2
 from rcrs_core.constants import kernel_constants
 from rcrs_core.entities.area import Area
 from rcrs_core.entities.building import Building
@@ -19,7 +20,8 @@ from rcrs_core.worldmodel.worldmodel import WorldModel
 from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
-from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings
+from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings, get_agents_in_comm_range_ids, \
+    neighbor_constraint
 
 
 def check_rescue_task(targets: List[Entity]) -> bool:
@@ -44,6 +46,7 @@ class FireBrigadeAgent(Agent):
         self.can_rescue = False
         self._cached_exp = None
         self._value_selection_freq = defaultdict(int)
+        self._buildings_for_domain = []
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -60,6 +63,7 @@ class FireBrigadeAgent(Agent):
 
             elif isinstance(entity, Building):
                 self.unexplored_buildings[entity.entity_id] = entity
+                self._buildings_for_domain.append(entity)
 
     def get_targets(self, entities: List[Entity]) -> list[Entity]:
         """Gets the entities that could be rescued by this agent"""
@@ -87,13 +91,6 @@ class FireBrigadeAgent(Agent):
             if entity:
                 entities.append(entity)
         return entities
-
-    def get_agents_in_comm_range_ids(self, entities: List[Entity]):
-        neighbors = []
-        for entity in entities:
-            if isinstance(entity, FireBrigadeEntity) and entity.entity_id != self.agent_id:
-                neighbors.append(entity.entity_id.get_value())
-        return neighbors
 
     def get_refuges(self, entities: List[Entity]) -> List[Refuge]:
         refuges = []
@@ -132,12 +129,11 @@ class FireBrigadeAgent(Agent):
         self.update_unexplored_buildings(change_set_entities)
 
         # get agents in communication range
-        neighbors = self.get_agents_in_comm_range_ids(change_set_entities)
+        neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
 
         targets = self.get_targets(change_set_entities)
-        buildings = get_buildings(self.world_model.get_entities())
-        domain = [c.get_id().get_value() for c in chain(targets, buildings)]
+        domain = [c.get_id().get_value() for c in chain(targets, self._buildings_for_domain)]
         self.bdi_agent.domain = domain
 
         # check if there is a civilian to be rescued
@@ -277,12 +273,29 @@ class FireBrigadeAgent(Agent):
         The desire is to optimize the objective functions in its neighborhood.
         :return:
         """
-        points = 10
-        agent_vals = dict(agent_vals)
-        selected_value = agent_vals.pop(self.agent_id.get_value())
-        neighbor_value = list(agent_vals.values())[0]
+        return neighbor_constraint(self.agent_id, context, agent_vals)
 
-        # coordination constraint
-        score = points if selected_value == neighbor_value else -points
 
-        return score
+class AKExtinguish(Command):
+
+    def __init__(self, agent_id: EntityID, time: int, target: EntityID, target_x: int,
+                 target_y: int, water: int) -> None:
+        super().__init__()
+        self.urn = URN.Command.AK_EXTINGUISH
+        self.agent_id = agent_id
+        self.target = target
+        self.time = time
+        self.target_x = target_x
+        self.target_y = target_y
+        self.water = water
+
+    def prepare_cmd(self):
+        msg = RCRSProto_pb2.MessageProto()
+        msg.urn = self.urn
+        msg.components[URN.ComponentControlMSG.AgentID].entityID = self.agent_id.get_value()
+        msg.components[URN.ComponentControlMSG.Time].intValue = self.time
+        msg.components[URN.ComponentCommand.Target].entityID = self.target.get_value()
+        msg.components[URN.ComponentCommand.DestinationX].intValue = self.target_x
+        msg.components[URN.ComponentCommand.DestinationY].intValue = self.target_y
+        msg.components[URN.ComponentCommand.Water].intValue = self.water
+        return msg

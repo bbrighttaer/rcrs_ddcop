@@ -5,6 +5,8 @@ from time import perf_counter
 import numpy as np
 import torch
 from sklearn.preprocessing import StandardScaler
+from skopt.space import Real, Categorical, Integer
+from skopt import gp_minimize
 
 from rcrs_ddcop.core.experience import ExperienceBuffer
 from rcrs_ddcop.core.nn import ModelTrainer, NodeGCN
@@ -14,24 +16,60 @@ random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
 
-
-# data = torch.load('210552869.pt')
-data = torch.load('1962675462.pt')
+data = torch.load('AmbulanceTeamAgent_482151809.pt')
 exp_buffer = ExperienceBuffer()
 exp_buffer.memory = data
 
+mode = 'train'
 
-trainer = ModelTrainer(
-    model=NodeGCN(dim=7),
-    label='poc-agent-trainer',
-    experience_buffer=exp_buffer,
-    log=getLogger(__name__),
-    transform=StandardScaler(),
-    batch_size=16,
-    lr=1e-3,
-)
+sim_time_steps = 100
 
-start = perf_counter()
-for i in range(1000):
-    trainer()
-print(f'time = {perf_counter() - start}')
+if mode == 'train':
+    trainer = ModelTrainer(
+        model=NodeGCN(dim=7),
+        label='poc-agent-trainer',
+        experience_buffer=exp_buffer,
+        log=getLogger(__name__),
+        transform=StandardScaler(),
+        batch_size=32,
+        lr=6e-3,  # 0.006060360647573297,
+        epochs=100,
+        weight_decay=0,
+    )
+
+    start = perf_counter()
+    for i in range(sim_time_steps):
+        trainer()
+    print(f'time = {perf_counter() - start}')
+else:
+    def objective_function(args):
+        lr, epochs, batch_size, weight_decay = float(args[0]), int(args[1]), int(args[2]), float(args[3])
+        print(f'lr={lr}, epochs={epochs}, batch_size={batch_size}, weight_decay={weight_decay}')
+
+        trainer = ModelTrainer(
+            model=NodeGCN(dim=7),
+            label='poc-agent-trainer',
+            experience_buffer=exp_buffer,
+            log=getLogger(__name__),
+            transform=StandardScaler(),
+            batch_size=batch_size,
+            lr=lr,
+            epochs=epochs,
+            weight_decay=weight_decay,
+        )
+        s = []
+        for i in range(sim_time_steps):
+            s.append(trainer())
+        score = np.mean(s)
+        return score
+
+
+    hparam_search = {
+        'lr': Real(1e-6, 1e-1, prior='log-uniform'),
+        'epochs': Integer(4, 100),
+        'batch_size': Categorical([4, 16, 32]),
+        'weight_decay': Real(1e-6, 1e-1),
+    }
+
+    res = gp_minimize(objective_function, hparam_search.values(), n_calls=100)
+    print(f'Best score={res.fun:.4f}, lr={res.x[0]}, epochs={res.x[1]}, batch_size={res.x[2]}, weigh_decay={res.x[3]}')

@@ -45,7 +45,7 @@ class BDIAgent(object):
 
         # create instances of main components
         self.comm = AgentPseudoComm(agent, self.handle_message)
-        self.graph = DIGCA(self)
+        self.graph = DIGCA(self, max_num_of_neighbors=3)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
     @property
@@ -264,7 +264,7 @@ class BDIAgent(object):
             case messaging.CoCoAMsgTypes.EXECUTION_REQUEST:
                 self.dcop.receive_execution_request_message(message)
 
-            # Other agent communication
+            # Information sharing
             case messaging.AgentMsgTypes.SHARED_INFO:
                 self.receive_shared_info(message, InfoSharingType.STATE_SHARING)
 

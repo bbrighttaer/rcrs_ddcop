@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from rcrs_core.log.logger import Logger
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
@@ -83,7 +84,7 @@ class train:
 class ModelTrainer:
 
     def __init__(self, label: str, model: NodeGCN, experience_buffer: ExperienceBuffer, log: Logger, batch_size: int,
-                 epochs: int = 100, lr=0.01, transform=None):
+                 epochs: int = 100, lr=0.01, weight_decay: float = 1e-3, gamma: float = 0, transform=None):
         self.label = label
         self.model = model
         self.experience_buffer = experience_buffer
@@ -91,11 +92,12 @@ class ModelTrainer:
         self.log = log
         self.epochs = epochs
         self.criterion = torch.nn.MSELoss()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         self.writer = SummaryWriter()
         self.count = 0
         self.normalizer = transform
         self.is_training = False
+        self.scheduler = StepLR(self.optimizer, step_size=epochs, gamma=gamma)
 
     def __call__(self, *args, **kwargs):
         """Trains the given model using data from the experience buffer"""
@@ -142,9 +144,14 @@ class ModelTrainer:
                     # parameters update
                     self.optimizer.step()
 
+                # self.scheduler.step()
+
             # metrics
             avg_loss = np.mean(losses)
+            # print(avg_loss)
             self.writer.add_scalars('Loss', {self.label: avg_loss}, self.count)
             self.count += 1
 
         self.is_training = False
+
+        return avg_loss

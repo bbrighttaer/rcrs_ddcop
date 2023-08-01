@@ -20,8 +20,8 @@ from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
-from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings, get_civilians, get_buried_humans, \
-    buried_humans_to_dict
+from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_civilians, get_buried_humans, \
+    buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint
 
 
 class AmbulanceTeamAgent(Agent):
@@ -38,6 +38,7 @@ class AmbulanceTeamAgent(Agent):
         self.can_rescue = False
         self._cached_exp = None
         self._value_selection_freq = defaultdict(int)
+        self._buildings_for_domain = []
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -54,6 +55,7 @@ class AmbulanceTeamAgent(Agent):
 
             elif isinstance(entity, Building):
                 self.unexplored_buildings[entity.entity_id] = entity
+                self._buildings_for_domain.append(entity)
 
     def check_rescue_task(self, civilians: List[Civilian]) -> bool:
         """checks if a rescue operation exists"""
@@ -78,13 +80,6 @@ class AmbulanceTeamAgent(Agent):
             if entity:
                 entities.append(entity)
         return entities
-
-    def get_agents_in_comm_range_ids(self, entities: List[Entity]):
-        neighbors = []
-        for entity in entities:
-            if isinstance(entity, AmbulanceTeamEntity) and entity.entity_id != self.agent_id:
-                neighbors.append(entity.entity_id.get_value())
-        return neighbors
 
     def get_refuges(self, entities: List[Entity]) -> List[Refuge]:
         refuges = []
@@ -128,7 +123,7 @@ class AmbulanceTeamAgent(Agent):
         self.current_time_step = time_step
 
         # share buried humans, if any
-        self.share_buried_humans()
+        # self.share_buried_humans()
 
         # estimate tau using exponential average
         alpha = 0.3
@@ -144,7 +139,7 @@ class AmbulanceTeamAgent(Agent):
         self.update_unexplored_buildings(change_set_entities)
 
         # get agents in communication range
-        neighbors = self.get_agents_in_comm_range_ids(change_set_entities)
+        neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
 
         # anyone onboard?
@@ -153,9 +148,9 @@ class AmbulanceTeamAgent(Agent):
         # get civilians to construct domain or set domain to civilian currently onboard
         civilians = get_civilians(change_set_entities)
         # self.get_buildings(change_set_entities)
-        buildings = get_buildings(self.world_model.get_entities())
-        civilians = self._validate_civilians(civilians)
-        domain = [c.get_id().get_value() for c in chain(civilians, buildings)]
+
+        civilians = self.validate_civilians(civilians)
+        domain = [c.get_id().get_value() for c in chain(civilians, self._buildings_for_domain)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
 
         # check if there is a civilian to be rescued
@@ -199,6 +194,7 @@ class AmbulanceTeamAgent(Agent):
 
         # if no one is on board but at a refuge, explore environment
         elif isinstance(self.location(), Refuge):
+            self.Log.debug('Leaving Refuge')
             self.send_search(time_step)
         else:
             # execute thinking process
@@ -256,17 +252,6 @@ class AmbulanceTeamAgent(Agent):
             if isinstance(entity, Building) and entity.entity_id in self.unexplored_buildings:
                 self.unexplored_buildings.pop(entity.entity_id)
 
-    def _validate_civilians(self, civilians: List[Civilian]) -> List[Civilian]:
-        """
-        filter out civilians who are already being transported by other agents.
-        """
-        _cv = []
-        for c in civilians:
-            if not isinstance(self.world_model.get_entity(c.get_position_property()), AmbulanceTeamAgent):
-                _cv.append(c)
-
-        return _cv
-
     def unary_constraint(self, context: WorldModel, selected_value):
         eps = 1e-20
         tau = 10000.  # if self._estimated_tau == 0 else self._estimated_tau
@@ -322,12 +307,16 @@ class AmbulanceTeamAgent(Agent):
         The desire is to optimize the objective functions in its neighborhood.
         :return:
         """
-        points = 10
-        agent_vals = dict(agent_vals)
-        selected_value = agent_vals.pop(self.agent_id.get_value())
-        neighbor_value = list(agent_vals.values())[0]
+        return neighbor_constraint(self.agent_id, context, agent_vals)
 
-        # coordination constraint
-        score = -points if selected_value == neighbor_value else points
+    def validate_civilians(self, civilians: List[Civilian]) -> List[Civilian]:
+        """
+        Filter out civilians who are already being transported by other agents or at a Refuge.
+        """
+        cv = []
+        for c in civilians:
+            civilian_location = self.world_model.get_entity(c.get_position())
+            if not (isinstance(civilian_location, AmbulanceTeamAgent) or isinstance(civilian_location, Refuge)):
+                cv.append(c)
 
-        return score
+        return cv
