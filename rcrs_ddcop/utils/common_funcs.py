@@ -1,6 +1,7 @@
 from typing import List
 
 import numpy as np
+from rcrs_core.agents.agent import Agent
 from rcrs_core.entities import standardEntityFactory
 from rcrs_core.entities.ambulanceTeam import AmbulanceTeamEntity
 from rcrs_core.entities.building import Building
@@ -9,6 +10,7 @@ from rcrs_core.entities.entity import Entity
 from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.human import Human
 from rcrs_core.entities.refuge import Refuge
+from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
@@ -37,12 +39,24 @@ def get_props(entity):
     return data
 
 
-def get_building_score(world_model: WorldModel, building: Building) -> float:
+def get_building_score(building: Building) -> float:
     """scores a given building by considering its building material and other building properties"""
-    building_code = world_model.get_entity(building.entity_id).get_building_code()
+    building_code = building.get_building_code()
     building_code_score = - np.log(building_code + 1e-5)
     building_score = building.get_fieryness() + building.get_brokenness() + building.get_temperature()
     return np.log(max(1, building_score)) + building_code_score
+
+
+def get_road_score(world_model: WorldModel, road: Road) -> float:
+    """scores a given road entity"""
+    scores = []
+    for neighbor_id in road.get_neighbours():
+        neighbor = world_model.get_entity(neighbor_id)
+        if isinstance(neighbor, Building) and not (isinstance(neighbor, Refuge) or isinstance(neighbor, Agent)):
+            scores.append(get_building_score(neighbor))
+    if scores:
+        return float(np.mean(scores))
+    return 0.
 
 
 def get_buildings(entities: List[Entity]) -> List[Building]:

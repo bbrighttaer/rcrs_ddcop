@@ -14,6 +14,7 @@ from rcrs_core.entities.entity import Entity
 from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.human import Human
 from rcrs_core.entities.refuge import Refuge
+from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
@@ -21,7 +22,7 @@ from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings, get_agents_in_comm_range_ids, \
-    neighbor_constraint
+    neighbor_constraint, get_road_score
 
 
 def check_rescue_task(targets: List[Entity]) -> bool:
@@ -47,6 +48,7 @@ class FireBrigadeAgent(Agent):
         self._cached_exp = None
         self._value_selection_freq = defaultdict(int)
         self._buildings_for_domain = []
+        self._roads = []
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -64,6 +66,9 @@ class FireBrigadeAgent(Agent):
             elif isinstance(entity, Building):
                 self.unexplored_buildings[entity.entity_id] = entity
                 self._buildings_for_domain.append(entity)
+
+            elif isinstance(entity, Road):
+                self._roads.append(entity)
 
     def get_targets(self, entities: List[Entity]) -> list[Entity]:
         """Gets the entities that could be rescued by this agent"""
@@ -133,7 +138,7 @@ class FireBrigadeAgent(Agent):
         self.bdi_agent.agents_in_comm_range = neighbors
 
         targets = self.get_targets(change_set_entities)
-        domain = [c.get_id().get_value() for c in chain(targets, self._buildings_for_domain)]
+        domain = [c.get_id().get_value() for c in chain(targets, self._buildings_for_domain, self._roads)]
         self.bdi_agent.domain = domain
 
         # check if there is a civilian to be rescued
@@ -185,6 +190,9 @@ class FireBrigadeAgent(Agent):
         # update selected value's tally
         self._value_selection_freq[agent_value] += 1
 
+        lbl = selected_entity.urn.name
+        self.Log.info(f'Time step {time_step}: selected {lbl} {selected_entity.entity_id.get_value()}')
+
         # rescue task
         if isinstance(selected_entity, Human):
             self.target = selected_entity
@@ -203,7 +211,7 @@ class FireBrigadeAgent(Agent):
                     self.Log.warning(f'Failed to plan path to {selected_entity_id}')
 
         # search task
-        elif isinstance(selected_entity, Building):
+        elif isinstance(selected_entity, Area):  # building or road
             # send search
             self.send_search(time_step, selected_entity_id)
 
@@ -247,16 +255,19 @@ class FireBrigadeAgent(Agent):
         score += np.sqrt(2 * len(self.bdi_agent.domain) * x)
 
         # Building score
-        if isinstance(entity, Building):
+        if isinstance(entity, Area):
             if self.can_rescue or entity.get_id().get_value() == self.location().get_id().get_value():
                 return np.log(eps)
-            return score + get_building_score(self.world_model, entity)
+            return score + get_building_score(entity) if isinstance(entity, Building) else get_road_score(
+                world_model=context,
+                road=self.world_model.get_entity(entity.entity_id),
+            )
 
         # human score
         if isinstance(entity, Human) and entity.get_hp() > 0 and entity.get_buriedness() > 0:
             location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
             if isinstance(location, Building):
-                score += get_building_score(self.world_model, location)
+                score += get_building_score(location)
 
             # buriedness and damage unary constraint
             score += np.log(max(1, entity.get_buriedness() + entity.get_damage()))

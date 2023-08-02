@@ -8,11 +8,13 @@ from rcrs_core.agents.agent import Agent
 from rcrs_core.connection import URN
 from rcrs_core.constants import kernel_constants
 from rcrs_core.entities.ambulanceTeam import AmbulanceTeamEntity
+from rcrs_core.entities.area import Area
 from rcrs_core.entities.building import Building
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
 from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.refuge import Refuge
+from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
@@ -21,7 +23,7 @@ from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_civilians, get_buried_humans, \
-    buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint
+    buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint, get_road_score
 
 
 class AmbulanceTeamAgent(Agent):
@@ -39,6 +41,7 @@ class AmbulanceTeamAgent(Agent):
         self._cached_exp = None
         self._value_selection_freq = defaultdict(int)
         self._buildings_for_domain = []
+        self._roads = []
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -56,6 +59,9 @@ class AmbulanceTeamAgent(Agent):
             elif isinstance(entity, Building):
                 self.unexplored_buildings[entity.entity_id] = entity
                 self._buildings_for_domain.append(entity)
+
+            elif isinstance(entity, Road):
+                self._roads.append(entity)
 
     def check_rescue_task(self, civilians: List[Civilian]) -> bool:
         """checks if a rescue operation exists"""
@@ -150,7 +156,7 @@ class AmbulanceTeamAgent(Agent):
         # self.get_buildings(change_set_entities)
 
         civilians = self.validate_civilians(civilians)
-        domain = [c.get_id().get_value() for c in chain(civilians, self._buildings_for_domain)]
+        domain = [c.get_id().get_value() for c in chain(civilians, self._buildings_for_domain, self._roads)]
         self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
 
         # check if there is a civilian to be rescued
@@ -204,12 +210,13 @@ class AmbulanceTeamAgent(Agent):
             # update selected value's tally
             self._value_selection_freq[agent_value] += 1
 
-            if isinstance(selected_entity, Building):
-                self.Log.info(f'Time step {time_step}: selected building {selected_entity.entity_id.get_value()}')
+            lbl = selected_entity.urn.name
+            self.Log.info(f'Time step {time_step}: selected {lbl} {selected_entity.entity_id.get_value()}')
+
+            if isinstance(selected_entity, Area):  # building or road
                 self.send_search(time_step, selected_entity.entity_id)
 
             elif isinstance(selected_entity, Civilian):
-                self.Log.info(f'Time step {time_step}: selected civilian {selected_entity.entity_id.get_value()}')
                 civilian = selected_entity
                 civilian_id = civilian.entity_id
 
@@ -280,17 +287,20 @@ class AmbulanceTeamAgent(Agent):
         x = np.log(self.current_time_step) / max(1, self._value_selection_freq[selected_value])
         score += np.sqrt(2 * len(self.bdi_agent.domain) * x)
 
-        # Building score
-        if isinstance(entity, Building):
+        # Building/Road score
+        if isinstance(entity, Area):
             if self.can_rescue or entity.get_id().get_value() == self.location().get_id().get_value():
                 return np.log(eps)
-            return score + get_building_score(self.world_model, entity)
+            return score + get_building_score(entity) if isinstance(entity, Building) else get_road_score(
+                world_model=context,
+                road=self.world_model.get_entity(entity.entity_id),
+            )
 
         # Civilian score
-        if isinstance(entity, Civilian) and entity.get_hp() > 0 and entity.get_buriedness() == 0:
+        elif isinstance(entity, Civilian) and entity.get_hp() > 0 and entity.get_buriedness() == 0:
             location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
             if isinstance(location, Building):
-                score += get_building_score(self.world_model, location)
+                score += get_building_score(location)
 
             # buriedness unary constraint
             if entity.get_buriedness() > 0:
@@ -299,6 +309,7 @@ class AmbulanceTeamAgent(Agent):
             # health points
             score += (1 - entity.get_hp() / 10000)
             return score
+
         else:
             return np.log(eps)
 

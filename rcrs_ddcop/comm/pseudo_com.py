@@ -74,7 +74,7 @@ class AgentPseudoComm(object):
         )
 
     def listen_to_network(self):
-        self.client.sleep(.01)
+        self.client.sleep(.05)
 
     def _send_to_agent(self, agent_id, body):
         self.channel.basic_publish(
