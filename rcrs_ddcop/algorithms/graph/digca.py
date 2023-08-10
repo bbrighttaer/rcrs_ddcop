@@ -17,7 +17,7 @@ class DIGCA(DynaGraph):
     Implementation of the Dynamic Interaction Graph Construction algorithm
     """
 
-    def __init__(self,  agent, max_num_of_neighbors: int = -1):
+    def __init__(self,  agent, timeout: float, max_num_of_neighbors: int = -1):
         super(DIGCA, self).__init__(agent)
         self._has_sent_parent_available = False
         self.pinged_list_dict = {}
@@ -25,7 +25,7 @@ class DIGCA(DynaGraph):
         self.announceResponseList = []
         self._ignored_ann_msgs = {}
         self._parent_already_assigned_msgs = {}
-        self._timeout_delay_in_seconds = .9
+        self._timeout_delay_in_seconds = timeout
         self._timeout_delay_start = None
         self._sent_announce_msg_list = []
         self._max_num_neighbors = max_num_of_neighbors

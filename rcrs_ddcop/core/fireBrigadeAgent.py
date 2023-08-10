@@ -1,4 +1,5 @@
 import threading
+import time
 from collections import defaultdict
 from itertools import chain
 from typing import List
@@ -76,8 +77,7 @@ class FireBrigadeAgent(Agent):
         for entity in entities:
             if isinstance(entity, Human):
                 location = self.world_model.get_entity(entity.position.get_value())
-                if not entity.get_id() == self.me().get_id() and isinstance(location, Area) \
-                        and not isinstance(location, Refuge):
+                if not entity.get_id() == self.me().get_id() and not isinstance(location, Refuge):
                     targets.append(entity)
         return targets
 
@@ -121,6 +121,7 @@ class FireBrigadeAgent(Agent):
             self.Log.warning(f'Failed to plan path to {self.target.get_id().get_value()}')
 
     def think(self, time_step, change_set, heard):
+        start = time.perf_counter()
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
             self.send_subscribe(time_step, [1, 2])
@@ -180,10 +181,13 @@ class FireBrigadeAgent(Agent):
         else:
             self.target = None
             self.deliberate(state, time_step)
+            time_taken = time.perf_counter() - start
+            self.bdi_agent.record_deliberation_time(time_step, time_taken)
+            self.Log.debug(f'Deliberation time = {time_taken}')
 
     def deliberate(self, state, time_step):
         # execute thinking process
-        agent_value, score = self.bdi_agent.deliberate(state)
+        agent_value, score = self.bdi_agent.deliberate(time_step)
         selected_entity = self.world_model.get_entity(EntityID(agent_value))
         selected_entity_id = selected_entity.entity_id
 

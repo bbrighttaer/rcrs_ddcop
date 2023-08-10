@@ -3,13 +3,15 @@ from logging import getLogger
 from time import perf_counter
 
 import numpy as np
+import xgboost as xgb
 import torch
+from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 from skopt.space import Real, Categorical, Integer
 from skopt import gp_minimize
 
 from rcrs_ddcop.core.experience import ExperienceBuffer
-from rcrs_ddcop.core.nn import ModelTrainer, NodeGCN
+from rcrs_ddcop.core.nn import ModelTrainer, NodeGCN, XGBTrainer
 
 seed = 7
 random.seed(seed)
@@ -20,7 +22,7 @@ data = torch.load('AmbulanceTeamAgent_482151809.pt')
 exp_buffer = ExperienceBuffer()
 exp_buffer.memory = data
 
-mode = 'train'
+mode = 'xgb_train'
 
 sim_time_steps = 100
 
@@ -41,6 +43,26 @@ if mode == 'train':
     for i in range(sim_time_steps):
         trainer()
     print(f'time = {perf_counter() - start}')
+
+elif mode == 'xgb_train':
+    trainer = XGBTrainer(
+        label='poc-agent-xgb-trainer',
+        experience_buffer=exp_buffer,
+        log=getLogger(__name__),
+        transform=StandardScaler(),
+        rounds=100,
+        model_params={
+            'objective': 'reg:squarederror',
+            'max_depth': 10,
+            'learning_rate': 1e-2,
+            'reg_lambda': 1e-3,
+        }
+    )
+
+    start = perf_counter()
+    for i in range(10):
+        score = trainer()
+    print(f'time = {perf_counter() - start}, score = {score}')
 else:
     def objective_function(args):
         lr, epochs, batch_size, weight_decay = float(args[0]), int(args[1]), int(args[2]), float(args[3])

@@ -1,4 +1,5 @@
 import threading
+import time
 from collections import defaultdict
 from itertools import chain
 from typing import List
@@ -122,6 +123,7 @@ class AmbulanceTeamAgent(Agent):
             self.bdi_agent.share_buried_entities_information(receiver_ids, buried_data)
 
     def think(self, time_step, change_set, heard):
+        start = time.perf_counter()
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
             self.send_subscribe(time_step, [1, 2])
@@ -204,7 +206,7 @@ class AmbulanceTeamAgent(Agent):
             self.send_search(time_step)
         else:
             # execute thinking process
-            agent_value, score = self.bdi_agent.deliberate(state)
+            agent_value, score = self.bdi_agent.deliberate(time_step)
             selected_entity = self.world_model.get_entity(EntityID(agent_value))
 
             # update selected value's tally
@@ -231,6 +233,11 @@ class AmbulanceTeamAgent(Agent):
                         self.send_move(time_step, path)
                     else:
                         self.Log.warning(f'Failed to plan path to {civilian_id}')
+
+            # record decision time
+            time_taken = time.perf_counter() - start
+            self.bdi_agent.record_deliberation_time(time_step, time_taken)
+            self.Log.debug(f'Deliberation time = {time_taken}')
 
     def send_search(self, time_step, building_id=None):
         path = self.search.breadth_first_search(

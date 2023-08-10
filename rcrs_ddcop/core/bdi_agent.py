@@ -3,7 +3,6 @@ import threading
 
 import numpy as np
 from rcrs_core.agents.agent import Agent
-from rcrs_core.worldmodel.worldmodel import WorldModel
 
 from rcrs_ddcop.algorithms.dcop.la_cocoa import LA_CoCoA
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
@@ -35,6 +34,9 @@ class BDIAgent(object):
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
         self.experience_buffer = ExperienceBuffer(lbl=self.label)
+        self._timeout = 2.6
+
+        self._decision_timeout_count = 0
 
         # agent-type constraint functions
         self.agent_type_neighbor_constraint = agent.neighbor_constraint
@@ -45,7 +47,7 @@ class BDIAgent(object):
 
         # create instances of main components
         self.comm = AgentPseudoComm(agent, self.handle_message)
-        self.graph = DIGCA(self, max_num_of_neighbors=3)
+        self.graph = DIGCA(self, timeout=self._timeout, max_num_of_neighbors=3)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
     @property
@@ -159,7 +161,7 @@ class BDIAgent(object):
             sharing_type=InfoSharingType.BURIED_HUMAN_SHARING,
         )
 
-    def deliberate(self, state):
+    def deliberate(self, time_step):
         """
         Determines what the agent wants to do in the environment - its intention.
         :return:
@@ -197,7 +199,10 @@ class BDIAgent(object):
             self.comm.threadsafe_execution(self.graph.start_dcop)
 
         # wait for value section or timeout
-        self._value_selection_evt.wait(timeout=2)
+        if not self._value_selection_evt.wait(timeout=self._timeout):
+            self._decision_timeout_count += 1
+            self.dcop.record_agent_metric('decision timeout', time_step, self._decision_timeout_count)
+            self.log.warning('Agent decision timeout')
 
         # if no value is selected after timeout, select a random value
         if self._value is None:
@@ -304,4 +309,8 @@ class BDIAgent(object):
             self.comm.listen_to_network()
             self.graph.connect()
             self.dcop.resolve_value()
+        self.log.info(f'Agent {self.agent_id} is shutting down. Adios!')
+
+    def record_deliberation_time(self, t, val):
+        self.dcop.record_agent_metric('deliberation time', t, val)
 

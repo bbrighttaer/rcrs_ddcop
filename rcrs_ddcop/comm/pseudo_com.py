@@ -47,7 +47,8 @@ class AgentPseudoComm(object):
                 host=BROKER_URL,
                 port=BROKER_PORT,
                 heartbeat=0,  # only for experimental purposes - see (https://www.rabbitmq.com/heartbeats.html)
-                credentials=pika.credentials.PlainCredentials(PIKA_USERNAME, PIKA_PASSWORD)
+                credentials=pika.credentials.PlainCredentials(PIKA_USERNAME, PIKA_PASSWORD),
+                connection_attempts=5,
             ))
         self.channel = self.client.channel()
         self.channel.exchange_declare(exchange=COMM_EXCHANGE, exchange_type='topic')
@@ -74,7 +75,7 @@ class AgentPseudoComm(object):
         )
 
     def listen_to_network(self):
-        self.client.sleep(.05)
+        self.client.sleep(.01)
 
     def _send_to_agent(self, agent_id, body):
         self.channel.basic_publish(

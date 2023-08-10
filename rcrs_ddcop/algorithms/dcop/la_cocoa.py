@@ -4,10 +4,11 @@ import numpy as np
 import torch
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import StandardScaler
+from xgboost import DMatrix
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
-from rcrs_ddcop.core.nn import NodeGCN, ModelTrainer
+from rcrs_ddcop.core.nn import NodeGCN, ModelTrainer, XGBTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -30,21 +31,41 @@ class LA_CoCoA(DCOP):
         self.neighbor_states = {}
         self.cost_map = {}
         self.node_feature_dim = 7
-        self.look_ahead_model = self._create_nn_model()
+        # self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
         self.unary_horizon_size = 1
         self.normalizer = StandardScaler()
-        self._model_trainer = ModelTrainer(
-            label=self.label,
-            model=self.look_ahead_model,
+
+        # Graph NN case
+        # self._model_trainer = ModelTrainer(
+        #     label=self.label,
+        #     model=self.look_ahead_model,
+        #     experience_buffer=self.agent.experience_buffer,
+        #     log=self.log,
+        #     batch_size=32,
+        #     lr=6e-3,
+        #     transform=self.normalizer,
+        # )
+
+        # XGBoot case
+        self._model_trainer = XGBTrainer(
+            label=f'{self.label}_{self.unary_horizon_size}',
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
-            batch_size=32,
-            lr=6e-3,
             transform=self.normalizer,
+            rounds=100,
+            model_params={
+                'objective': 'reg:squarederror',
+                'max_depth': 10,
+                'learning_rate': 1e-2,
+                'reg_lambda': 1e-3,
+            }
         )
         self._time_step = 0
         self._training_cycle = 5
+
+    def record_agent_metric(self, name, t, value):
+        self._model_trainer.write_to_tf_board(name, t, value)
 
     def _create_nn_model(self):
         return NodeGCN(dim=self.node_feature_dim)
@@ -142,10 +163,10 @@ class LA_CoCoA(DCOP):
         if not total_cost_dict:
             total_cost_dict = {value: {'cost': 0., 'params': {}} for value in self.domain}
 
-        # copy current weights
-        model = self._create_nn_model()
-        model.load_state_dict(self.look_ahead_model.state_dict())
-        model.eval()
+        # GNN: copy current weights
+        # model = self._create_nn_model()
+        # model.load_state_dict(self.look_ahead_model.state_dict())
+        # model.eval()
 
         # apply unary constraints
         belief = world_to_state(self.agent.belief)
@@ -158,20 +179,33 @@ class LA_CoCoA(DCOP):
                     pass
 
             # predict next state and update belief for utility estimation
-            try:
+            if self.unary_horizon_size > 1 and self._model_trainer.model:
                 # normalize
-                belief.x = torch.tensor(self.normalizer.transform(belief.x), dtype=torch.float)
+                x = self.normalizer.transform(belief.x)
+                x_matrix = DMatrix(data=x)
 
                 # predict
-                belief.x = model(belief)
+                output = self._model_trainer.model.predict(x_matrix)
 
                 # revert normalization
-                x = self.normalizer.inverse_transform(belief.x.detach().numpy())
+                x = self.normalizer.inverse_transform(output)
                 x = np.clip(x, a_min=0., a_max=None)
                 belief.x = torch.tensor(x, dtype=torch.float)
-            except NotFittedError:
-                # don't use model if no training has happened yet
-                break
+
+            # try:
+            #     # normalize
+            #     belief.x = torch.tensor(self.normalizer.transform(belief.x), dtype=torch.float)
+            #
+            #     # predict
+            #     belief.x = model(belief)
+            #
+            #     # revert normalization
+            #     x = self.normalizer.inverse_transform(belief.x.detach().numpy())
+            #     x = np.clip(x, a_min=0., a_max=None)
+            #     belief.x = torch.tensor(x, dtype=torch.float)
+            # except NotFittedError:
+            #     # don't use model if no training has happened yet
+            #     break
 
         self.log.info(f'Total cost dict: {total_cost_dict}')
         if self.agent.optimization_op == 'max':
