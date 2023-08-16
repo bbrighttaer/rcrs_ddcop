@@ -249,6 +249,7 @@ class XGBTrainer:
         if self.best_model_config:
             model.load_config(self.best_model_config)
             self._model = model
+            model.save_model('model.json')
 
         return model.best_score
 

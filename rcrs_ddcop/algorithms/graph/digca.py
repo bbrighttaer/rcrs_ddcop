@@ -1,6 +1,7 @@
 import enum
 import random
 import time
+from collections import deque
 
 from rcrs_ddcop.algorithms.graph import DynaGraph
 
@@ -22,12 +23,12 @@ class DIGCA(DynaGraph):
         self._has_sent_parent_available = False
         self.pinged_list_dict = {}
         self.state = State.INACTIVE
-        self.announceResponseList = []
+        self.announceResponseList = deque()
         self._ignored_ann_msgs = {}
         self._parent_already_assigned_msgs = {}
         self._timeout_delay_in_seconds = timeout
         self._timeout_delay_start = None
-        self._sent_announce_msg_list = []
+        self._sent_announce_msg_list = deque()
         self._max_num_neighbors = max_num_of_neighbors
 
     def on_time_step_changed(self):
@@ -52,7 +53,7 @@ class DIGCA(DynaGraph):
             self._sent_announce_msg_list.extend(new_agents)
 
             # wait to receive responses
-            self.comm.listen_to_network()
+            self.comm.listen_to_network(duration=0.2)
 
             self.log.debug(f'AnnounceResponse list in connect: {self.announceResponseList}')
 
@@ -79,7 +80,7 @@ class DIGCA(DynaGraph):
                 and not self.exec_started \
                 and self._timeout_delay_start \
                 and time.time() - self._timeout_delay_start > self._timeout_delay_in_seconds:
-            self.log.warning('Starting DCOP as a result of decision process timeout.')
+            self.log.warning(f'Starting DCOP as a result of decision process timeout.')
             self.start_dcop()
             self._timeout_delay_start = None
 
@@ -87,8 +88,10 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received announce: {message}')
         sender = message['payload']['agent_id']
 
-        if self.state == State.INACTIVE and self.agent.agent_id < sender \
-                and (self._max_num_neighbors >= self.num_of_neighbors or self._max_num_neighbors == -1):
+        if self.state == State.INACTIVE \
+                and self.agent.agent_id < sender \
+                and (self._max_num_neighbors >= self.num_of_neighbors
+                     or self._max_num_neighbors == -1):
             self.comm.send_announce_response(sender)
 
     def receive_announce_response(self, message):

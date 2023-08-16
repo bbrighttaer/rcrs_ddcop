@@ -1,3 +1,4 @@
+from collections import deque
 
 
 def get_agent_order(agent_id):
@@ -13,9 +14,9 @@ class DynaGraph:
         self.agent = agent
         self.comm = agent.comm
         self.parent = None
-        self.children = []
-        self.pseudo_children = []
-        self.pseudo_parents = []
+        self.children = deque()
+        self.pseudo_children = deque()
+        self.pseudo_parents = deque()
         self.children_history = {}
         self.log = self.agent.log
         self.exec_started = False
@@ -34,7 +35,7 @@ class DynaGraph:
 
     @property
     def num_of_neighbors(self):
-        return len(self.children) + 1 if self.parent else + 0
+        return len(self.children) + 1 if self.parent else 0
 
     @property
     def neighbors(self):

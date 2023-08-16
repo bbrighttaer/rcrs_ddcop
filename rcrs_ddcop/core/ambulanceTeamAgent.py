@@ -25,6 +25,7 @@ from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_civilians, get_buried_humans, \
     buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint, get_road_score
+from rcrs_ddcop.utils.logger import Logger
 
 
 class AmbulanceTeamAgent(Agent):
@@ -48,7 +49,7 @@ class AmbulanceTeamAgent(Agent):
         self.Log.info('precompute finished')
 
     def post_connect(self):
-        super(AmbulanceTeamAgent, self).post_connect()
+        self.Log = Logger(self.get_name(), self.get_id())
         threading.Thread(target=self._start_bdi_agent, daemon=True).start()
         self.search = BFSSearch(self.world_model)
 
@@ -149,6 +150,7 @@ class AmbulanceTeamAgent(Agent):
         # get agents in communication range
         neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
+        self.bdi_agent.remove_unreachable_neighbors()
 
         # anyone onboard?
         on_board_civilian = self.get_civilian_on_board()
@@ -156,10 +158,6 @@ class AmbulanceTeamAgent(Agent):
         # get civilians to construct domain or set domain to civilian currently onboard
         civilians = get_civilians(change_set_entities)
         # self.get_buildings(change_set_entities)
-
-        civilians = self.validate_civilians(civilians)
-        domain = [c.get_id().get_value() for c in chain(civilians, self._buildings_for_domain, self._roads)]
-        self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
 
         # check if there is a civilian to be rescued
         self.can_rescue = self.check_rescue_task(civilians)
@@ -186,6 +184,9 @@ class AmbulanceTeamAgent(Agent):
 
         # if someone is onboard, focus on transporting the person to a refuge
         if on_board_civilian:
+            self.bdi_agent.domain = [on_board_civilian.get_id().get_value()]
+            self.bdi_agent.send_busy_to_neighbors()
+
             self.Log.info(f'Civilian {on_board_civilian.get_id()} is onboard')
 
             # Am I at a refuge?
@@ -202,9 +203,15 @@ class AmbulanceTeamAgent(Agent):
 
         # if no one is on board but at a refuge, explore environment
         elif isinstance(self.location(), Refuge):
+            self.bdi_agent.send_busy_to_neighbors()
             self.Log.debug('Leaving Refuge')
             self.send_search(time_step)
         else:
+            # update domain
+            civilians = self.validate_civilians(civilians)
+            domain = [c.get_id().get_value() for c in chain(civilians, self._buildings_for_domain, self._roads)]
+            self.bdi_agent.domain = domain
+
             # execute thinking process
             agent_value, score = self.bdi_agent.deliberate(time_step)
             selected_entity = self.world_model.get_entity(EntityID(agent_value))
@@ -217,6 +224,7 @@ class AmbulanceTeamAgent(Agent):
 
             if isinstance(selected_entity, Area):  # building or road
                 self.send_search(time_step, selected_entity.entity_id)
+                ...
 
             elif isinstance(selected_entity, Civilian):
                 civilian = selected_entity
@@ -334,7 +342,8 @@ class AmbulanceTeamAgent(Agent):
         cv = []
         for c in civilians:
             civilian_location = self.world_model.get_entity(c.get_position())
-            if not (isinstance(civilian_location, AmbulanceTeamAgent) or isinstance(civilian_location, Refuge)):
+            if not (isinstance(civilian_location, AmbulanceTeamAgent)
+                    or isinstance(civilian_location, Refuge)) and c.get_hp() > 0:
                 cv.append(c)
 
         return cv

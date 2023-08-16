@@ -123,7 +123,7 @@ def humans_dict_to_instances(humans_dict: dict) -> List[Human]:
     return humans
 
 
-def get_agents_in_comm_range_ids(agent_id, entities: List[Entity]) -> List[Entity]:
+def get_agents_in_comm_range_ids(agent_id, entities: List[Entity]) -> List[int]:
     """Gets the list of agents within communication (perception) range of the given agent"""
     neighbors = []
     for entity in entities:

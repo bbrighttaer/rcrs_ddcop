@@ -9,6 +9,7 @@ class AgentMsgTypes(StrEnum):
     TEST = auto()
     SHARED_INFO = auto()
     SHARED_BURIED_ENTITIES = auto()
+    BUSY = auto()
 
 
 class DIGCAMsgTypes(StrEnum):
@@ -129,3 +130,7 @@ def create_lsla_util_message(data):
 
 def create_shared_buried_entities_info_message(data):
     return _create_msg(AgentMsgTypes.SHARED_BURIED_ENTITIES, data)
+
+
+def create_busy_message(data):
+    return _create_msg(AgentMsgTypes.BUSY, data)

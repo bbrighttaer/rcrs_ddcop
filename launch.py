@@ -28,7 +28,11 @@ class Launcher:
         pass        
 
     def launch(self, agent, _request_id):
-        self.component_launcher.connect(agent, _request_id)
+        try:
+            self.component_launcher.connect(agent, _request_id)
+        except EOFError:
+            print(f'Server connection closed. End of simulation.')
+            sys.exit(0)
 
     def run(self, kwargs):
         processes = []

@@ -1,4 +1,5 @@
 import threading
+import time
 
 import numpy as np
 import torch
@@ -93,8 +94,7 @@ class LA_CoCoA(DCOP):
         self.log.info('Initiating CoCoA')
 
         neighbors = self.graph.neighbors
-        if not self.value:
-            self.state = self.ACTIVE
+        if not self.value and self.state in [self.IDLE, self.HOLD]:
             self.report_state_change_to_dashboard()
 
             # when agent is isolated
@@ -118,14 +118,18 @@ class LA_CoCoA(DCOP):
                         'agent_id': self.agent.agent_id,
                     }
                 )
-        else:
+        elif self.state == self.DONE:
+            self.log.info(f'Sending state={self.state} to neighbors={neighbors}')
             for child in neighbors:
                 self.send_update_state_message(child, {
                     'agent_id': self.agent.agent_id,
                     'state': self.state,
                 })
+        else:
+            self.log.warning(f'Ignoring execution, current state = {self.state}')
 
     def _send_inquiry_messages(self):
+        self.state = self.ACTIVE
         neighbors = self.graph.neighbors
         self.log.info(f'Sending Inquiry messages to: {neighbors}')
         for agent in neighbors:
@@ -207,7 +211,7 @@ class LA_CoCoA(DCOP):
             #     # don't use model if no training has happened yet
             #     break
 
-        self.log.info(f'Total cost dict: {total_cost_dict}')
+        # self.log.info(f'Total cost dict: {total_cost_dict}')
         if self.agent.optimization_op == 'max':
             op = max
         else:
@@ -265,18 +269,18 @@ class LA_CoCoA(DCOP):
         ...
 
     def receive_cost_message(self, payload):
-        self.log.info(f'Received cost message')
         data = payload['payload']
         sender = data['agent_id']
         cost_map = data['cost_map']
         self.cost_map[sender] = cost_map
+        self.log.info(f'Received cost message from {sender}')
 
     def receive_inquiry_message(self, payload):
-        self.log.info(f'Received inquiry message')
         payload = payload['payload']
         sender = payload['agent_id']
         sender_domain = payload['domain']
         belief = dict_to_state(payload['belief'])
+        self.log.info(f'Received inquiry message from {sender}')
 
         # create world-view from local belief and shared belief for reasoning
         context = state_to_world(world_to_state(self.agent.belief))
@@ -320,7 +324,7 @@ class LA_CoCoA(DCOP):
             self.execute_dcop()
 
     def receive_execution_request_message(self, payload):
-        self.log.info(f'Received execution request: {payload}')
+        self.log.info(f'Received execution request: {payload}, state = {self.state}')
         self.execute_dcop()
 
     def predict_next_state(self, belief, model):

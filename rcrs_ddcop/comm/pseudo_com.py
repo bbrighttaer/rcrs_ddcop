@@ -1,8 +1,8 @@
 import functools
+import json
 from typing import Callable, List
 
 import pika
-from rcrs_core.agents.agent import Agent
 
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.core.enums import InfoSharingType
@@ -17,19 +17,22 @@ COMM_EXCHANGE = f'{DOMAIN}.ddcop'
 AGENTS_CHANNEL = f'{DOMAIN}.agent'
 
 
-def parse_amqp_body(body):
-    return eval(body.decode('utf-8').replace('true', 'True').replace('false', 'False').replace('null', 'None'))
-
-
 def create_on_message(agent_id, handle_message):
     def on_message(ch, method, properties, body):
-        message = parse_amqp_body(body)
+        message = eval(
+            body.decode('utf-8')
+            .replace('true', 'True')
+            .replace('false', 'False')
+            .replace('null', 'None')
+        )
 
         # ignore own messages (no local is not supported ATM, see https://www.rabbitmq.com/specification.html)
         if 'agent_id' in message['payload'] and message['payload']['agent_id'] == agent_id:
             return
 
-        handle_message(message)
+        # start processing on a different thread
+        cb = functools.partial(handle_message, message)
+        ch.connection.add_callback_threadsafe(cb)
 
     return on_message
 
@@ -39,9 +42,10 @@ class AgentPseudoComm(object):
     Pseudo-communication layer for agents.
     """
 
-    def __init__(self, agent: Agent, message_handler: Callable):
-        self.agent_id = agent.agent_id.get_value()
-        self.Log = agent.Log
+    def __init__(self, agent: 'BDIAgent'):
+        self._bdi_agt = agent
+        self.agent_id = agent.agent_id
+        self.Log = agent.log
         self.client = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=BROKER_URL,
@@ -70,14 +74,18 @@ class AgentPseudoComm(object):
         # bind callback function for receiving messages
         self.channel.basic_consume(
             queue=self.queue,
-            on_message_callback=create_on_message(self.agent_id, message_handler),
+            on_message_callback=create_on_message(self.agent_id, agent.handle_message),
             auto_ack=True
         )
 
-    def listen_to_network(self):
-        self.client.sleep(.01)
+    def listen_to_network(self, duration=0.01):
+        self.client.sleep(duration)
 
     def _send_to_agent(self, agent_id, body):
+        # intercept message and add current time step information
+        data = json.loads(body)
+        data['time_step'] = self._bdi_agt.time_step
+        body = json.dumps(data)
         self.channel.basic_publish(
             exchange=COMM_EXCHANGE,
             routing_key=f'{AGENTS_CHANNEL}.{agent_id}',
@@ -240,4 +248,10 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_lsla_util_message(data),
+        )
+
+    def send_busy_message(self, agent_id, data):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_busy_message(data),
         )

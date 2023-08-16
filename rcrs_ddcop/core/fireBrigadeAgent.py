@@ -24,6 +24,7 @@ from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_buildings, get_agents_in_comm_range_ids, \
     neighbor_constraint, get_road_score
+from rcrs_ddcop.utils.logger import Logger
 
 
 def check_rescue_task(targets: List[Entity]) -> bool:
@@ -55,7 +56,7 @@ class FireBrigadeAgent(Agent):
         self.Log.info('precompute finished')
 
     def post_connect(self):
-        super().post_connect()
+        self.Log = Logger(self.get_name(), self.get_id())
         threading.Thread(target=self._start_bdi_agent, daemon=True).start()
         self.search = BFSSearch(self.world_model)
 
@@ -137,10 +138,9 @@ class FireBrigadeAgent(Agent):
         # get agents in communication range
         neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
+        self.bdi_agent.remove_unreachable_neighbors()
 
-        targets = self.get_targets(change_set_entities)
-        domain = [c.get_id().get_value() for c in chain(targets, self._buildings_for_domain, self._roads)]
-        self.bdi_agent.domain = domain
+        targets = []
 
         # check if there is a civilian to be rescued
         self.can_rescue = check_rescue_task(targets)
@@ -167,6 +167,9 @@ class FireBrigadeAgent(Agent):
 
         # if target is already assigned, focus on rescuing this target
         if self.target and self.target.get_buriedness() > 0:
+            self.bdi_agent.domain = [self.target.get_id().get_value()]
+            self.bdi_agent.send_busy_to_neighbors()
+
             self.Log.info(f'Rescuing target {self.target.get_id()}')
 
             # if the location of the target has been reached, rescue the target else plan path to the target
@@ -179,6 +182,11 @@ class FireBrigadeAgent(Agent):
 
         # there is no target, decide on what to do
         else:
+            # update domain
+            targets = self.get_targets(change_set_entities)
+            domain = [c.get_id().get_value() for c in chain(targets, self._buildings_for_domain, self._roads)]
+            self.bdi_agent.domain = domain
+
             self.target = None
             self.deliberate(state, time_step)
             time_taken = time.perf_counter() - start
