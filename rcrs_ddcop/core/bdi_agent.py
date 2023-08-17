@@ -23,20 +23,19 @@ class BDIAgent(object):
         self._rcrs_agent = agent
         self.agent_id = agent.agent_id.get_value()
         self.label = f'{agent.name}_{self.agent_id}'
-        self.latest_event_timestamp = None
         self.belief = agent.world_model
         self.log = agent.Log
         self._domain = []
         self._state = None
         self._agents_in_comm_range = []
-        self._new_agents = []
+        self.busy_neighbors = []
         self._value = None
         self._previous_value = None
         self._terminate = False
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
         self.experience_buffer = ExperienceBuffer(lbl=self.label)
-        self._timeout = 1.5
+        self._timeout = 3.5
 
         self._decision_timeout_count = 0
 
@@ -52,7 +51,7 @@ class BDIAgent(object):
 
         # create instances of main components
         self.comm = AgentPseudoComm(self)
-        self.graph = DIGCA(self, timeout=self._timeout, max_num_of_neighbors=3)
+        self.graph = DIGCA(self, timeout=2.5, max_num_of_neighbors=3)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
     @property
@@ -81,7 +80,7 @@ class BDIAgent(object):
 
     @property
     def new_agents(self):
-        return self._new_agents
+        return set(self.agents_in_comm_range) - set(self.graph.neighbors)
 
     @property
     def optimization_op(self):
@@ -176,9 +175,6 @@ class BDIAgent(object):
         :return:
         """
         self.log.debug('started deliberation...')
-        # set time step or cycle properties
-        self.latest_event_timestamp = datetime.datetime.now().timestamp()
-        self._new_agents = set(self.agents_in_comm_range) - set(self.graph.neighbors)
         self._value_selection_evt.clear()
 
         # clear time step buffers
@@ -198,8 +194,6 @@ class BDIAgent(object):
             f'agents-in-range={self.agents_in_comm_range}, '
             f'domain={self.domain}'
         )
-
-        self.process_paused_msgs()
 
         # if no neighborhood change
         if not self.graph.has_potential_neighbor():
@@ -241,13 +235,15 @@ class BDIAgent(object):
         self.paused_messages.clear()
 
     def handle_message(self, message, is_delayed=False):
+        message_time_step = message['time_step']
+
         # reject outdated messages (every message has a timestamp)
-        if not is_delayed and self.latest_event_timestamp and message['timestamp'] < self.latest_event_timestamp:
+        if not is_delayed and message_time_step < self.time_step:
             self.log.warning(f'Cannot handle past message: {message}')
             return
 
         # store messages of future time step for processing when the agent is ready for this future time step
-        if message['time_step'] > self.time_step:
+        if message_time_step > self.time_step:
             self.paused_messages.append(message)
             self.log.debug(f'Added {message["type"]} message from {message["payload"]["agent_id"]} to paused queue')
         else:
@@ -350,11 +346,14 @@ class BDIAgent(object):
         data = message['payload']
         sender = data['agent_id']
         self.log.info(f'Received Busy message from {sender}')
+        self.busy_neighbors.append(sender)
 
-        if sender in self.agents_in_comm_range:
-            self.agents_in_comm_range.remove(sender)
+        # if sender in self._agents_in_comm_range:
+        #     self._agents_in_comm_range.remove(sender)
+        #     self.log.info(f'Removed {sender} from agents in range, left with: {self.agents_in_comm_range}')
 
-        if len(self.agents_in_comm_range) == 0 and not self.value:
+        # start decision process if value is yet to be selected and all neighbors are unavailable
+        if len(self.agents_in_comm_range) == len(self.busy_neighbors) and not self.value:
             self.comm.threadsafe_execution(self.dcop.select_random_value)
 
     def send_busy_to_neighbors(self):

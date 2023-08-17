@@ -80,7 +80,7 @@ class DIGCA(DynaGraph):
                 and not self.exec_started \
                 and self._timeout_delay_start \
                 and time.time() - self._timeout_delay_start > self._timeout_delay_in_seconds:
-            self.log.warning(f'Starting DCOP as a result of decision process timeout.')
+            self.log.warning(f'DIGCA timeout, starting D-DCOP.')
             self.start_dcop()
             self._timeout_delay_start = None
 

@@ -74,7 +74,7 @@ class Logger:
         self.root.warning(msg)
 
     def warn(self, msg):
-        self.root.warn(msg)
+        self.root.warning(msg)
 
     def set_id(self, id):
         try:

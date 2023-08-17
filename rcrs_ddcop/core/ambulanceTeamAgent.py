@@ -129,11 +129,6 @@ class AmbulanceTeamAgent(Agent):
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
             self.send_subscribe(time_step, [1, 2])
 
-        self.current_time_step = time_step
-
-        # share buried humans, if any
-        # self.share_buried_humans()
-
         # estimate tau using exponential average
         alpha = 0.3
         if self._previous_position:
@@ -148,9 +143,12 @@ class AmbulanceTeamAgent(Agent):
         self.update_unexplored_buildings(change_set_entities)
 
         # get agents in communication range
+        self.current_time_step = time_step
         neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
         self.bdi_agent.remove_unreachable_neighbors()
+        self.bdi_agent.busy_neighbors.clear()
+        self.bdi_agent.process_paused_msgs()
 
         # anyone onboard?
         on_board_civilian = self.get_civilian_on_board()

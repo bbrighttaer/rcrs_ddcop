@@ -36,6 +36,7 @@ class LA_CoCoA(DCOP):
         self.bin_horizon_size = 1
         self.unary_horizon_size = 1
         self.normalizer = StandardScaler()
+        self._sent_inquiries_list = []
 
         # Graph NN case
         # self._model_trainer = ModelTrainer(
@@ -80,6 +81,7 @@ class LA_CoCoA(DCOP):
         self.value = None
         self.neighbor_states.clear()
         self._time_step += 1
+        self._sent_inquiries_list.clear()
 
     def value_selection(self, val):
         # check for model training time step
@@ -125,12 +127,15 @@ class LA_CoCoA(DCOP):
                     'agent_id': self.agent.agent_id,
                     'state': self.state,
                 })
+        elif set(self.graph.neighbors) - set(self._sent_inquiries_list):
+            self.log.info('Sending remaining inquiry message')
+            self._send_inquiry_messages()
         else:
             self.log.warning(f'Ignoring execution, current state = {self.state}')
 
     def _send_inquiry_messages(self):
         self.state = self.ACTIVE
-        neighbors = self.graph.neighbors
+        neighbors = set(self.graph.neighbors) - set(self._sent_inquiries_list)
         self.log.info(f'Sending Inquiry messages to: {neighbors}')
         for agent in neighbors:
             self._send_inquiry_message(agent, {
@@ -138,6 +143,7 @@ class LA_CoCoA(DCOP):
                 'domain': self.domain,
                 'belief': state_to_dict(self.agent.state),
             })
+            self._sent_inquiries_list.append(agent)
 
     def select_value(self):
         """
