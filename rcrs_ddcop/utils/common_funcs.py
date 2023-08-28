@@ -21,6 +21,7 @@ def distance(x1, y1, x2, y2):
 
 
 def get_props(entity):
+    data = {}
     if isinstance(entity, Building):
         data = {
             'id': entity.get_id().get_value(),

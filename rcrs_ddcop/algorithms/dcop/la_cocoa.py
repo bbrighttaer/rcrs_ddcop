@@ -34,8 +34,7 @@ class LA_CoCoA(DCOP):
         self.node_feature_dim = 7
         # self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
-        self.unary_horizon_size = 1
-        self.normalizer = StandardScaler()
+        self.unary_horizon_size = 5
         self._sent_inquiries_list = []
 
         # Graph NN case
@@ -51,10 +50,10 @@ class LA_CoCoA(DCOP):
 
         # XGBoot case
         self._model_trainer = XGBTrainer(
-            label=f'{self.label}_{self.unary_horizon_size}',
+            label=self.label,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
-            transform=self.normalizer,
+            transform=StandardScaler(),
             rounds=100,
             model_params={
                 'objective': 'reg:squarederror',
@@ -173,6 +172,8 @@ class LA_CoCoA(DCOP):
         if not total_cost_dict:
             total_cost_dict = {value: {'cost': 0., 'params': {}} for value in self.domain}
 
+        self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
+
         # GNN: copy current weights
         # model = self._create_nn_model()
         # model.load_state_dict(self.look_ahead_model.state_dict())
@@ -188,17 +189,19 @@ class LA_CoCoA(DCOP):
                 except AttributeError as e:
                     pass
 
+            self.log.debug(f'Cost dict (unary-{i+1}): {total_cost_dict}')
+
             # predict next state and update belief for utility estimation
             if self.unary_horizon_size > 1 and self._model_trainer.model:
                 # normalize
-                x = self.normalizer.transform(belief.x)
+                x = self._model_trainer.normalizer.transform(belief.x)
                 x_matrix = DMatrix(data=x)
 
                 # predict
                 output = self._model_trainer.model.predict(x_matrix)
 
                 # revert normalization
-                x = self.normalizer.inverse_transform(output)
+                x = self._model_trainer.normalizer.inverse_transform(output)
                 x = np.clip(x, a_min=0., a_max=None)
                 belief.x = torch.tensor(x, dtype=torch.float)
 

@@ -1,3 +1,4 @@
+import math
 import threading
 import time
 from collections import defaultdict
@@ -167,7 +168,7 @@ class FireBrigadeAgent(Agent):
         self._cached_exp = state
 
         # if target is already assigned, focus on rescuing this target
-        if self.target and self.target.get_buriedness() > 0:
+        if self.target and self.target.get_buriedness() > 0 and self.target.get_hp() > 0:
             self.bdi_agent.domain = [self.target.get_id().get_value()]
             self.bdi_agent.send_busy_to_neighbors()
 
@@ -251,6 +252,9 @@ class FireBrigadeAgent(Agent):
         penalty = 2
         tau = 10000.  # if self._estimated_tau == 0 else self._estimated_tau
 
+        if selected_value == 410064826:
+            print('here')
+
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
 
@@ -286,7 +290,8 @@ class FireBrigadeAgent(Agent):
             score += np.log(max(1, entity.get_buriedness() + entity.get_damage()))
 
             # health points
-            score += (1 - entity.get_hp() / 10000)
+            hp_ = 30 * math.e ** (-entity.get_hp() / 10000)
+            score += hp_
         else:
             return np.log(eps)
 

@@ -273,8 +273,10 @@ poetry.toml
 pyrightconfig.json
 
 # tensorboard
-/runs
+/runs*
 
 *.pt
+*.json
+*.bin
 
 # End of https://www.toptal.com/developers/gitignore/api/pycharm+all,python,jupyternotebooks

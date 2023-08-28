@@ -48,6 +48,7 @@ class Logger:
         self.root = logging.getLogger(_name)
         if not self.root.hasHandlers():
             self.file_handler = logging.handlers.RotatingFileHandler(filename='logs/' + _name + '.log', mode='a')
+            self.file_handler2 = logging.handlers.RotatingFileHandler(filename='logs/sim.log', mode='a')
             self.console_handler = logging.StreamHandler()
             # formatter = logging.Formatter(f'%(processName)-10s %(levelname)-3s %(name)s ({agent_id}): %(message)s')
             formatter = colorlog.ColoredFormatter(
@@ -55,9 +56,11 @@ class Logger:
                 # datefmt='%y-%m-%d %H:%M:%s',
             )
             self.file_handler.setFormatter(formatter)
+            self.file_handler2.setFormatter(formatter)
             self.console_handler.setFormatter(formatter)
             self.root.addHandler(self.file_handler)
             self.root.addHandler(self.console_handler)
+            self.root.addHandler(self.file_handler2)
             self.root.setLevel(logging.DEBUG)
             # self.root.propagate = False
 

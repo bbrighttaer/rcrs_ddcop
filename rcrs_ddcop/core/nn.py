@@ -6,12 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from rcrs_core.log.logger import Logger
 from sklearn.metrics import r2_score
+import joblib
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
 import xgboost as xgb
-from xgboost import XGBRegressor
 from xgboost.callback import TrainingCallback, _Model, EarlyStopping
 
 from rcrs_ddcop.core.data import process_data
@@ -191,9 +191,22 @@ class XGBTrainer:
         self._rounds = rounds
         self.is_training = False
 
+        self.load_model()
+
     @property
     def model(self):
         return self._model
+
+    def load_model(self):
+        self._model = xgb.Booster()
+        model_file_name = f'{self.label}_model_static.json'
+        scaler_file_name = f'{self.label}_scaler_static.bin'
+        # if 'FireBrigade' in self.label:
+        #     model_file_name = 'FireBrigadeAgent_210552869_model_static.json'
+        #     scaler_file_name = 'FireBrigadeAgent_210552869_scaler_static.bin'
+        self._model.load_model(model_file_name)
+        self.normalizer = joblib.load(scaler_file_name)
+        self.log.info('Model loaded successfully')
 
     def write_to_tf_board(self, name, t, val):
         self.writer.add_scalars(name, {self.label: val}, t)
@@ -249,9 +262,10 @@ class XGBTrainer:
         if self.best_model_config:
             model.load_config(self.best_model_config)
             self._model = model
-            model.save_model('model.json')
+            model.save_model(f'{self.label}_model.json')
+            joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
 
-        return model.best_score
+        return self.best_score
 
 
 class ModelCheckpointCallback(TrainingCallback):

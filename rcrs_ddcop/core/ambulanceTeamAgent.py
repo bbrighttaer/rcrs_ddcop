@@ -1,3 +1,4 @@
+import math
 import threading
 import time
 from collections import defaultdict
@@ -320,11 +321,12 @@ class AmbulanceTeamAgent(Agent):
                 score += np.log(max(1, entity.get_buriedness()))
 
             # health points
-            score += (1 - entity.get_hp() / 10000)
-            return score
-
+            hp_ = 30 * math.e ** (-entity.get_hp() / 10000)
+            score += hp_
         else:
             return np.log(eps)
+
+        return score
 
     def neighbor_constraint(self, context: WorldModel, agent_vals: dict):
         """
