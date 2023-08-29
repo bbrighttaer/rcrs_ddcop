@@ -25,7 +25,8 @@ from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_civilians, get_buried_humans, \
-    buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint, get_road_score
+    buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint, get_road_score, \
+    inspect_buildings_for_domain
 from rcrs_ddcop.utils.logger import Logger
 
 
@@ -54,7 +55,7 @@ class AmbulanceTeamAgent(Agent):
         threading.Thread(target=self._start_bdi_agent, daemon=True).start()
         self.search = BFSSearch(self.world_model)
 
-        # get buildings and refuge_ids in the environment
+        # get buildings and refuges in the environment
         for entity in self.world_model.get_entities():
             if isinstance(entity, Refuge):
                 self.refuge_ids.add(entity.entity_id)
@@ -208,7 +209,11 @@ class AmbulanceTeamAgent(Agent):
         else:
             # update domain
             civilians = self.validate_civilians(civilians)
-            domain = [c.get_id().get_value() for c in chain(civilians, self._buildings_for_domain, self._roads)]
+            domain = [c.get_id().get_value() for c in chain(
+                civilians,
+                inspect_buildings_for_domain(self._buildings_for_domain),
+                self._roads,
+            )]
             self.bdi_agent.domain = domain
 
             # execute thinking process

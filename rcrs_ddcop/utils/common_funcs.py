@@ -1,4 +1,5 @@
-from typing import List
+import math
+from typing import List, Iterable
 
 import numpy as np
 from rcrs_core.agents.agent import Agent
@@ -14,10 +15,17 @@ from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
+from rcrs_ddcop.core.enums import Fieryness
+
 
 def distance(x1, y1, x2, y2):
     """Calculates Manhattan distance"""
     return float(np.abs(x1 - x2) + np.abs(y1 - y2))
+
+
+def euclidean_distance(x1, y1, x2, y2):
+    """Calculates Euclidean distance"""
+    return math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
 
 
 def get_props(entity):
@@ -161,3 +169,7 @@ def neighbor_constraint(agent_id: int, context: WorldModel, agent_vals: dict):
         return points * 0.6
 
     # raise ValueError(f'Entity {neighbor_entity} could not be found in world model')
+
+
+def inspect_buildings_for_domain(entities: Iterable[Entity]):
+    return list(filter(lambda x: x.get_fieryness() < Fieryness.BURNT_OUT, entities))
