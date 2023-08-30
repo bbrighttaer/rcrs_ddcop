@@ -26,7 +26,7 @@ from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_civilians, get_buried_humans, \
     buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint, get_road_score, \
-    inspect_buildings_for_domain
+    inspect_buildings_for_domain, get_human_score
 from rcrs_ddcop.utils.logger import Logger
 
 
@@ -280,7 +280,7 @@ class AmbulanceTeamAgent(Agent):
 
     def unary_constraint(self, context: WorldModel, selected_value):
         eps = 1e-20
-        tau = 10000.  # if self._estimated_tau == 0 else self._estimated_tau
+        score = 0.
 
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
@@ -294,13 +294,13 @@ class AmbulanceTeamAgent(Agent):
                 return np.log(eps)
 
         # distance
-        score = distance(
-            x1=self.world_model.get_entity(entity.entity_id).get_x(),
-            y1=self.world_model.get_entity(entity.entity_id).get_y(),
-            x2=self.me().get_x(),
-            y2=self.me().get_y()
-        ) / tau
-        score = -np.log(score + eps)
+        # score = distance(
+        #     x1=self.world_model.get_entity(entity.entity_id).get_x(),
+        #     y1=self.world_model.get_entity(entity.entity_id).get_y(),
+        #     x2=self.me().get_x(),
+        #     y2=self.me().get_y()
+        # ) / tau
+        # score = -np.log(score + eps)
 
         # exploration term
         x = np.log(self.current_time_step) / max(1, self._value_selection_freq[selected_value])
@@ -317,17 +317,7 @@ class AmbulanceTeamAgent(Agent):
 
         # Civilian score
         elif isinstance(entity, Civilian) and entity.get_hp() > 0 and entity.get_buriedness() == 0:
-            location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
-            if isinstance(location, Building):
-                score += get_building_score(location)
-
-            # buriedness unary constraint
-            if entity.get_buriedness() > 0:
-                score += np.log(max(1, entity.get_buriedness()))
-
-            # health points
-            hp_ = 30 * math.e ** (-entity.get_hp() / 10000)
-            score += hp_
+            score += get_human_score(self.world_model, context, entity)
         else:
             return np.log(eps)
 

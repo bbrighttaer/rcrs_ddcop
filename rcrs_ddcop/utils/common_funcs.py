@@ -52,7 +52,8 @@ def get_building_score(building: Building) -> float:
     """scores a given building by considering its building material and other building properties"""
     building_code = building.get_building_code()
     building_code_score = - np.log(building_code + 1e-5)
-    building_score = building.get_fieryness() + building.get_brokenness() + building.get_temperature()
+    temperature = building.get_temperature()
+    building_score = temperature if building.get_fieryness() > Fieryness.BURNING else 0.
     return np.log(max(1, building_score)) + building_code_score
 
 
@@ -66,6 +67,19 @@ def get_road_score(world_model: WorldModel, road: Road) -> float:
     if scores:
         return float(np.mean(scores))
     return 0.
+
+
+def get_human_score(world_model, context, entity):
+    score = 0.
+    location = context.get_entity(world_model.get_entity(entity.entity_id).position.get_value())
+    if isinstance(location, Building):
+        score += get_building_score(location)
+    # buriedness and damage unary constraint
+    score += np.log(max(1, entity.get_buriedness() + entity.get_damage()))
+    # health points
+    hp_ = 30 * math.e ** (-entity.get_hp() / 10000)
+    score += hp_
+    return score
 
 
 def get_buildings(entities: List[Entity]) -> List[Building]:

@@ -24,7 +24,7 @@ from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_agents_in_comm_range_ids, \
-    neighbor_constraint, get_road_score, inspect_buildings_for_domain, euclidean_distance
+    neighbor_constraint, get_road_score, inspect_buildings_for_domain, euclidean_distance, get_human_score
 from rcrs_ddcop.utils.logger import Logger
 
 WATER_OUT = 500
@@ -203,7 +203,8 @@ class FireBrigadeAgent(Agent):
         # if a target is already assigned, focus on this target
         if self.target and (
                 (isinstance(self.target, Human) and self.target.get_buriedness() > 0 and self.target.get_hp() > 0)
-                or (isinstance(self.target, Building) and 0 < self.target.get_fieryness() < Fieryness.BURNT_OUT)
+                or (isinstance(self.target, Building) and self.target.get_temperature() > 0
+                    and self.target.get_fieryness() < Fieryness.BURNT_OUT)
         ):
             self.bdi_agent.domain = [self.target.get_id().get_value()]
             self.bdi_agent.send_busy_to_neighbors()
@@ -221,7 +222,7 @@ class FireBrigadeAgent(Agent):
                     self.refill_water_tank()
                     self.target = None
 
-                elif self.target.get_fieryness() > 0:
+                elif self.target.get_fieryness() > Fieryness.UNBURNT:
                     self.Log.info(f'Extinguishing building {self.target.get_id()}')
                     self.send_extinguish(time_step, self.target.get_id(), self.target.get_x(), self.target.get_y())
 
@@ -276,14 +277,18 @@ class FireBrigadeAgent(Agent):
                 self.target = None
 
             # check if fire should be put out
-            elif isinstance(selected_entity, Building) and self.location().get_id() == selected_entity_id:
-                self.Log.info(f'Extinguishing building {selected_entity_id}')
-                self.send_extinguish(
-                    time_step,
-                    selected_entity_id,
-                    selected_entity.get_x(),
-                    selected_entity.get_y(),
-                )
+            elif isinstance(selected_entity, Building) \
+                    and self.get_neighboring_road(selected_entity) == self.location().get_id():
+                if self.target.get_fieryness() > Fieryness.UNBURNT:
+                    self.Log.info(f'Extinguishing building {selected_entity_id}')
+                    self.send_extinguish(
+                        time_step,
+                        selected_entity_id,
+                        selected_entity.get_x(),
+                        selected_entity.get_y(),
+                    )
+                else:
+                    self.target = None
 
             else:
                 self.move_to_target(time_step)
@@ -316,20 +321,19 @@ class FireBrigadeAgent(Agent):
 
     def unary_constraint(self, context: WorldModel, selected_value):
         eps = 1e-20
-        penalty = 2
-        tau = 10000.  # if self._estimated_tau == 0 else self._estimated_tau
+        score = 0.
 
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
 
         # distance
-        score = distance(
-            x1=self.world_model.get_entity(entity.entity_id).get_x(),
-            y1=self.world_model.get_entity(entity.entity_id).get_y(),
-            x2=self.me().get_x(),
-            y2=self.me().get_y()
-        ) / tau
-        score = -np.log(score + eps)
+        # score = distance(
+        #     x1=self.world_model.get_entity(entity.entity_id).get_x(),
+        #     y1=self.world_model.get_entity(entity.entity_id).get_y(),
+        #     x2=self.me().get_x(),
+        #     y2=self.me().get_y()
+        # ) / tau
+        # score = -np.log(score + eps)
 
         # exploration term
         x = np.log(self.current_time_step) / max(1, self.value_selection_freq[selected_value])
@@ -345,17 +349,8 @@ class FireBrigadeAgent(Agent):
             )
 
         # human score
-        if isinstance(entity, Human) and entity.get_hp() > 0 and entity.get_buriedness() > 0:
-            location = context.get_entity(self.world_model.get_entity(entity.entity_id).position.get_value())
-            if isinstance(location, Building):
-                score += get_building_score(location)
-
-            # buriedness and damage unary constraint
-            score += np.log(max(1, entity.get_buriedness() + entity.get_damage()))
-
-            # health points
-            hp_ = 30 * math.e ** (-entity.get_hp() / 10000)
-            score += hp_
+        if isinstance(entity, Human) and entity.get_hp() > 0 and entity.get_buriedness() >= 60:
+            score += get_human_score(self.world_model, context, entity)
         else:
             return np.log(eps)
 
