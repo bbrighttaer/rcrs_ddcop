@@ -70,16 +70,16 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
                                      entity.get_temperature(),
                                      entity.get_brokenness(),
                                      entity.get_building_code(),
-                                     # len(_get_unburnt_neighbors(world_model, entity)),
+                                     get_building_fire_index(entity, world_model),
                                  ] + [0.] * 3)
         elif isinstance(entity, Human):
-            node_features.append([0.] * 4 + [
+            node_features.append([0.] * 5 + [
                 entity.get_buriedness(),
                 entity.get_damage(),
                 entity.get_hp(),
             ])
         else:
-            node_features.append([0.] * 7)
+            node_features.append([0.] * 8)
 
     node_feat_arr = torch.tensor(node_features, dtype=torch.float)
     data = Data(
@@ -107,9 +107,9 @@ def state_to_world(data: Data) -> WorldModel:
             entity.set_brokenness(feat[2].item())
             entity.set_building_code(feat[3].item())
         elif isinstance(entity, Human):
-            entity.set_buriedness(feat[4].item())
-            entity.set_damage(feat[5].item())
-            entity.set_hp(feat[6].item())
+            entity.set_buriedness(feat[5].item())
+            entity.set_damage(feat[6].item())
+            entity.set_hp(feat[7].item())
         world_model.add_entity(entity)
 
     return world_model
@@ -158,3 +158,12 @@ def process_data(raw_data: list[list[Data]], transform=None) -> list[Data]:
     # compute data normalization stats
     transform.fit(np.concatenate(transform_data))
     return data
+
+
+def get_building_fire_index(building: Building, world_model: WorldModel):
+    neighbor_temps = []
+    for neighbor in building.get_neighbours():
+        entity = world_model.get_entity(neighbor)
+        if isinstance(entity, Building):
+            neighbor_temps.append(entity.get_temperature())
+    return max(neighbor_temps) if neighbor_temps else 0.

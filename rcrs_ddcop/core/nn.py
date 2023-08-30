@@ -191,7 +191,7 @@ class XGBTrainer:
         self._rounds = rounds
         self.is_training = False
 
-        self.load_model()
+        # self.load_model()
 
     @property
     def model(self):

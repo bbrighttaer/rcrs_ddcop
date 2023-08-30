@@ -31,7 +31,7 @@ class LA_CoCoA(DCOP):
         self.state = self.IDLE
         self.neighbor_states = {}
         self.cost_map = {}
-        self.node_feature_dim = 7
+        self.node_feature_dim = 8
         # self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
         self.unary_horizon_size = 1
