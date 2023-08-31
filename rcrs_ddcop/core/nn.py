@@ -191,7 +191,7 @@ class XGBTrainer:
         self._rounds = rounds
         self.is_training = False
 
-        # self.load_model()
+        self.load_model()
 
     @property
     def model(self):
@@ -211,59 +211,65 @@ class XGBTrainer:
     def write_to_tf_board(self, name, t, val):
         self.writer.add_scalars(name, {self.label: val}, t)
 
+    def __enter__(self):
+        self.is_training = True
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.is_training = False
+
     def __call__(self, *args, **kwargs):
         """Trains the prediction model"""
         # ensure there is enough data to sample from
         if len(self.experience_buffer) < 10:
             return
 
-        self.log.debug('Training initiated...')
-        self.is_training = True
+        with self:
+            self.log.debug('Training initiated...')
 
-        # start training block
-        sampled_data = self.experience_buffer.sample(len(self.experience_buffer))
-        dataset = process_data(sampled_data, transform=self.normalizer)
-        data = next(iter(DataLoader(dataset, batch_size=len(dataset))))
+            # start training block
+            sampled_data = self.experience_buffer.sample(len(self.experience_buffer))
+            dataset = process_data(sampled_data, transform=self.normalizer)
+            data = next(iter(DataLoader(dataset, batch_size=len(dataset))))
 
-        # normalize data to zero mean, unit variance
-        X = self.normalizer.transform(data.x)
-        Y = self.normalizer.transform(data.y)
+            # normalize data to zero mean, unit variance
+            X = self.normalizer.transform(data.x)
+            Y = self.normalizer.transform(data.y)
 
-        # split data
-        tr_sz = int(len(X) * 0.8)
-        X_train = X[:tr_sz, :]
-        Y_train = Y[:tr_sz, :]
-        X_val = X[tr_sz:, :]
-        Y_val = Y[tr_sz:, :]
+            # split data
+            tr_sz = int(len(X) * 0.8)
+            X_train = X[:tr_sz, :]
+            Y_train = Y[:tr_sz, :]
+            X_val = X[tr_sz:, :]
+            Y_val = Y[tr_sz:, :]
 
-        # put data into xgb matrix
-        dtrain = xgb.DMatrix(data=X_train, label=Y_train)
-        dval = xgb.DMatrix(data=X_val, label=Y_val)
+            # put data into xgb matrix
+            dtrain = xgb.DMatrix(data=X_train, label=Y_train)
+            dval = xgb.DMatrix(data=X_val, label=Y_val)
 
-        # train model
-        model = xgb.train(
-            params=self.params,
-            dtrain=dtrain,
-            num_boost_round=self._rounds,
-            evals=[(dtrain, 'train'), (dval, 'val')],
-            callbacks=[
-                ModelCheckpointCallback(self),
-                EarlyStopping(
-                    rounds=5,
-                    metric_name='rmse',
-                    data_name='val',
-                )
-            ],
-            custom_metric=r2,
-            verbose_eval=False,
-            xgb_model=self._model,
-        )
+            # train model
+            model = xgb.train(
+                params=self.params,
+                dtrain=dtrain,
+                num_boost_round=self._rounds,
+                evals=[(dtrain, 'train'), (dval, 'val')],
+                callbacks=[
+                    ModelCheckpointCallback(self),
+                    EarlyStopping(
+                        rounds=5,
+                        metric_name='rmse',
+                        data_name='val',
+                    )
+                ],
+                custom_metric=r2,
+                verbose_eval=False,
+                xgb_model=self._model,
+            )
 
-        if self.best_model_config:
-            model.load_config(self.best_model_config)
-            self._model = model
-            model.save_model(f'{self.label}_model.json')
-            joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
+            if self.best_model_config:
+                model.load_config(self.best_model_config)
+                self._model = model
+                # model.save_model(f'{self.label}_model.json')
+                # joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
 
         return self.best_score
 

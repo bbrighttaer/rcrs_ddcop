@@ -25,7 +25,7 @@ def distance(x1, y1, x2, y2):
 
 def euclidean_distance(x1, y1, x2, y2):
     """Calculates Euclidean distance"""
-    return math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+    return math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 
 
 def get_props(entity):
@@ -51,7 +51,7 @@ def get_props(entity):
 def get_building_score(building: Building) -> float:
     """scores a given building by considering its building material and other building properties"""
     building_code = building.get_building_code()
-    building_code_score = - np.log(building_code + 1e-5)
+    building_code_score = 0.  # - np.log(building_code + 1e-5)
     temperature = building.get_temperature()
     building_score = temperature if building.get_fieryness() > Fieryness.BURNING else 0.
     return np.log(max(1, building_score)) + building_code_score

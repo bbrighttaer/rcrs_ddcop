@@ -34,7 +34,7 @@ class LA_CoCoA(DCOP):
         self.node_feature_dim = 8
         # self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
-        self.unary_horizon_size = 1
+        self.unary_horizon_size = 5
         self._sent_inquiries_list = []
 
         # Graph NN case
