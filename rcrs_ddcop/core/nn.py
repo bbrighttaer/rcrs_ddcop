@@ -1,12 +1,14 @@
 from typing import Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from rcrs_core.log.logger import Logger
 from sklearn.metrics import r2_score
 import joblib
+from sklearn.model_selection import train_test_split
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
@@ -14,7 +16,7 @@ from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
 import xgboost as xgb
 from xgboost.callback import TrainingCallback, _Model, EarlyStopping
 
-from rcrs_ddcop.core.data import process_data
+from rcrs_ddcop.core.data import process_data, correct_skewed_data
 from rcrs_ddcop.core.experience import ExperienceBuffer
 
 
@@ -223,53 +225,79 @@ class XGBTrainer:
         if len(self.experience_buffer) < 10:
             return
 
-        with self:
-            self.log.debug('Training initiated...')
-
-            # start training block
-            sampled_data = self.experience_buffer.sample(len(self.experience_buffer))
-            dataset = process_data(sampled_data, transform=self.normalizer)
-            data = next(iter(DataLoader(dataset, batch_size=len(dataset))))
-
-            # normalize data to zero mean, unit variance
-            X = self.normalizer.transform(data.x)
-            Y = self.normalizer.transform(data.y)
-
-            # split data
-            tr_sz = int(len(X) * 0.8)
-            X_train = X[:tr_sz, :]
-            Y_train = Y[:tr_sz, :]
-            X_val = X[tr_sz:, :]
-            Y_val = Y[tr_sz:, :]
-
-            # put data into xgb matrix
-            dtrain = xgb.DMatrix(data=X_train, label=Y_train)
-            dval = xgb.DMatrix(data=X_val, label=Y_val)
-
-            # train model
-            model = xgb.train(
-                params=self.params,
-                dtrain=dtrain,
-                num_boost_round=self._rounds,
-                evals=[(dtrain, 'train'), (dval, 'val')],
-                callbacks=[
-                    ModelCheckpointCallback(self),
-                    EarlyStopping(
-                        rounds=5,
-                        metric_name='rmse',
-                        data_name='val',
-                    )
-                ],
-                custom_metric=r2,
-                verbose_eval=False,
-                xgb_model=self._model,
-            )
-
-            if self.best_model_config:
-                model.load_config(self.best_model_config)
-                self._model = model
-                # model.save_model(f'{self.label}_model.json')
-                # joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
+        # with self:
+        #     self.log.debug('Training initiated...')
+        #
+        #     # start training block
+        #     batch_sz = 100
+        #     sampled_data = self.experience_buffer.sample(batch_sz)
+        #     dataset = process_data(sampled_data, transform=self.normalizer)
+        #     data = next(iter(DataLoader(dataset, batch_size=batch_sz)))
+        #
+        #     # normalize data to zero mean, unit variance
+        #     columns = [
+        #         'fieryness_x', 'temperature_x', 'brokenness_x', 'building_code_x', 'fire_index_x',
+        #         'fieryness_y', 'temperature_y', 'brokenness_y', 'building_code_y', 'fire_index_y',
+        #     ]
+        #     try:
+        #         X, Y = correct_skewed_data(data.x, data.y, columns, 'fieryness_x')
+        #     except ValueError as e:
+        #         self.log.warning(f'Training terminated due to: {str(e)}')
+        #         return
+        #
+        #     # # save data
+        #     # concat_data = np.concatenate([data.x, data.y], axis=1)
+        #     # df = pd.DataFrame(
+        #     #     concat_data,
+        #     #     columns=[
+        #     #         'fieryness_x', 'temperature_x', 'brokenness_x', 'building_code_x', 'fire_index_x',
+        #     #         'fieryness_y', 'temperature_y', 'brokenness_y', 'building_code_y', 'fire_index_y',
+        #     #     ],
+        #     # )
+        #     # df.to_csv(f'{self.label}_training_data.csv', index=False)
+        #
+        #     X = self.normalizer.transform(X)
+        #     Y = self.normalizer.transform(Y)
+        #     # wts = np.array([1. if 3 > e > 0 else 0.2 for e in data.y[:, 0]])
+        #
+        #     # split data
+        #     # tr_sz = int(len(X) * 0.8)
+        #     # X_train = X[:tr_sz, :]
+        #     # Y_train = Y[:tr_sz, :]
+        #     # train_wts = wts[:tr_sz]
+        #     # X_val = X[tr_sz:, :]
+        #     # Y_val = Y[tr_sz:, :]
+        #     # val_wts = wts[tr_sz:]
+        #     X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, shuffle=True)
+        #
+        #     # put data into xgb matrix
+        #     dtrain = xgb.DMatrix(data=X_train, label=y_train)
+        #     dval = xgb.DMatrix(data=X_val, label=y_val)
+        #
+        #     # train model
+        #     model = xgb.train(
+        #         params=self.params,
+        #         dtrain=dtrain,
+        #         num_boost_round=self._rounds,
+        #         evals=[(dtrain, 'train'), (dval, 'val')],
+        #         callbacks=[
+        #             ModelCheckpointCallback(self),
+        #             EarlyStopping(
+        #                 rounds=5,
+        #                 metric_name='rmse',
+        #                 data_name='val',
+        #             )
+        #         ],
+        #         custom_metric=r2,
+        #         verbose_eval=False,
+        #         xgb_model=self._model,
+        #     )
+        #
+        #     # if self.best_model_config:
+        #     #     model.load_config(self.best_model_config)
+        #     #     self._model = model
+        #     #     model.save_model(f'{self.label}_model.json')
+        #     #     joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
 
         return self.best_score
 

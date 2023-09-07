@@ -1,4 +1,5 @@
-import math
+import os.path
+import threading
 import threading
 import time
 from collections import defaultdict
@@ -6,6 +7,8 @@ from itertools import chain
 from typing import List
 
 import numpy as np
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
 from rcrs_core.agents.agent import Agent
 from rcrs_core.commands.Command import Command
 from rcrs_core.connection import URN, RCRSProto_pb2
@@ -24,7 +27,8 @@ from rcrs_ddcop.core.bdi_agent import BDIAgent
 from rcrs_ddcop.core.data import world_to_state, state_to_dict
 from rcrs_ddcop.core.enums import Fieryness
 from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_agents_in_comm_range_ids, \
-    neighbor_constraint, get_road_score, inspect_buildings_for_domain, euclidean_distance, get_human_score
+    neighbor_constraint, get_road_score, inspect_buildings_for_domain, euclidean_distance, get_human_score, \
+    create_update_look_ahead_tuples
 from rcrs_ddcop.utils.logger import Logger
 
 WATER_OUT = 500
@@ -49,12 +53,15 @@ class FireBrigadeAgent(Agent):
         self.unexplored_buildings = {}
         self.refuges = set()
         self.target = None
+        self.target_initial_state = None
         self.can_rescue = False
         self.cached_exp = None
         self.value_selection_freq = defaultdict(int)
         self.buildings_for_domain = []
         self.roads = []
         self.building_to_road = defaultdict(list)
+        self.fire_calls_attended = []
+        self.la_tuples = None
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -160,7 +167,9 @@ class FireBrigadeAgent(Agent):
             self.send_subscribe(time_step, [1, 2])
 
         # get visible entity_ids
-        change_set_entities = self.get_change_set_entities(list(change_set.changed.keys()))
+        change_set_entity_ids = list(change_set.changed.keys())
+        change_set_entities = self.get_change_set_entities(change_set_entity_ids)
+        self.Log.debug(f'Seen {[c.get_value() for c in change_set_entity_ids]}')
 
         # update unexplored buildings
         self.update_unexplored_buildings(change_set_entities)
@@ -196,65 +205,88 @@ class FireBrigadeAgent(Agent):
             self.bdi_agent.share_information(exp=[
                 state_to_dict(self.cached_exp), state_to_dict(s_prime)
             ])
+
+            # record look-ahead results
+            if self.la_tuples:
+                create_update_look_ahead_tuples(self.world_model, self.la_tuples, stage=3)
+                self.write_la_tuples_to_file()
+            self.la_tuples = create_update_look_ahead_tuples(self.world_model)
+
         self.cached_exp = state
 
-        self.Log.debug(f'water level = {self.me().get_water()}')
-
         # if a target is already assigned, focus on this target
-        if self.target and (
-                (isinstance(self.target, Human) and self.target.get_buriedness() > 0 and self.target.get_hp() > 0)
-                or (isinstance(self.target, Building) and self.target.get_temperature() > 0
-                    and self.target.get_fieryness() < Fieryness.BURNT_OUT)
-        ):
-            self.bdi_agent.domain = [self.target.get_id().get_value()]
-            self.bdi_agent.send_busy_to_neighbors()
+        # if self.target and (
+        #         (isinstance(self.target, Human) and self.target.get_buriedness() > 0 and self.target.get_hp() > 0)
+        #         or (isinstance(self.target, Building) and self.target.get_fieryness() < Fieryness.INFERNO
+        #             and self.target.get_id() not in self.fire_calls_attended)
+        # ):
+        #     self.bdi_agent.domain = [self.target.get_id().get_value()]
+        #     self.bdi_agent.send_busy_to_neighbors()
+        #     self.bdi_agent.record_agent_decision(time_step, self.target_initial_state)
+        #
+        #     # if the location of the target has been reached, rescue the target else plan path to the target
+        #     if isinstance(self.target, Human) and self.target.position.get_value() == self.location().get_id():
+        #         self.Log.info(f'Rescuing target {self.target.get_id()}')
+        #         self.send_rescue(time_step, self.target.get_id())
+        #
+        #     # check if there's fire to be put out
+        #     elif isinstance(self.target, Building) \
+        #             and self.get_neighboring_road(self.target) == self.location().get_id():
+        #         # check if water tank should be refilled
+        #         if self.me().get_water() < WATER_OUT:
+        #             self.refill_water_tank()
+        #             self.target = None
+        #
+        #         elif self.target.get_fieryness() >= Fieryness.BURNING:
+        #             self.Log.info(f'Extinguishing building {self.target.get_id()}')
+        #             self.send_extinguish(time_step, self.target.get_id(), self.target.get_x(), self.target.get_y())
+        #             self.fire_calls_attended.append(self.target.get_id())
+        #
+        #             # monitor proactivity
+        #             if self.target_initial_state == 1:
+        #                 self.bdi_agent.record_agent_action('extinguish', time_step, 1)
+        #
+        #         else:
+        #             self.target = None
+        #
+        #     # on-course to target
+        #     else:
+        #         self.move_to_target(time_step)
+        #
+        # # there is no target, decide on what to do
+        # else:
+        # update domain
+        targets = self.get_targets(change_set_entities)
+        domain = [c.get_id().get_value() for c in chain(
+            targets,
+            inspect_buildings_for_domain(self.buildings_for_domain),
+            self.roads,
+        ) if c.get_id() not in self.fire_calls_attended]
+        self.bdi_agent.domain = domain
 
-            # if the location of the target has been reached, rescue the target else plan path to the target
-            if isinstance(self.target, Human) and self.target.position.get_value() == self.location().get_id():
-                self.Log.info(f'Rescuing target {self.target.get_id()}')
-                self.send_rescue(time_step, self.target.get_id())
+        if not domain:
+            self.Log.warning('Domain set is empty')
+            return
 
-            # check if there's fire to be put out
-            elif isinstance(self.target, Building) \
-                    and self.get_neighboring_road(self.target) == self.location().get_id():
-                # check if water tank should be refilled
-                if self.me().get_water() < WATER_OUT:
-                    self.refill_water_tank()
-                    self.target = None
-
-                elif self.target.get_fieryness() > Fieryness.UNBURNT:
-                    self.Log.info(f'Extinguishing building {self.target.get_id()}')
-                    self.send_extinguish(time_step, self.target.get_id(), self.target.get_x(), self.target.get_y())
-
-                else:
-                    self.target = None
-
-            # on-course to target
-            else:
-                self.move_to_target(time_step)
-
-        # there is no target, decide on what to do
-        else:
-            # update domain
-            targets = self.get_targets(change_set_entities)
-            domain = [c.get_id().get_value() for c in chain(
-                targets,
-                inspect_buildings_for_domain(self.buildings_for_domain),
-                self.roads,
-            )]
-            self.bdi_agent.domain = domain
-
-            self.target = None
-            self.deliberate(state, time_step)
-            time_taken = time.perf_counter() - start
-            self.bdi_agent.record_deliberation_time(time_step, time_taken)
-            self.Log.debug(f'Deliberation time = {time_taken}')
+        self.target = None
+        self.deliberate(state, time_step)
+        time_taken = time.perf_counter() - start
+        self.bdi_agent.record_deliberation_time(time_step, time_taken)
+        self.Log.debug(f'Deliberation time = {time_taken}')
 
     def deliberate(self, state, time_step):
         # execute thinking process
         agent_value, score = self.bdi_agent.deliberate(time_step)
         selected_entity = self.world_model.get_entity(EntityID(agent_value))
         selected_entity_id = selected_entity.entity_id
+
+        # monitor decision
+        if isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING:
+            self.target_initial_state = 1
+            self.bdi_agent.record_agent_decision(time_step, self.target_initial_state)
+        else:
+            self.target_initial_state = 0
+            self.bdi_agent.record_agent_decision(time_step, self.target_initial_state)
 
         # update selected value's tally
         self.value_selection_freq[agent_value] += 1
@@ -279,7 +311,7 @@ class FireBrigadeAgent(Agent):
             # check if fire should be put out
             elif isinstance(selected_entity, Building) \
                     and self.get_neighboring_road(selected_entity) == self.location().get_id():
-                if self.target.get_fieryness() > Fieryness.UNBURNT:
+                if self.target.get_fieryness() >= Fieryness.BURNING:
                     self.Log.info(f'Extinguishing building {selected_entity_id}')
                     self.send_extinguish(
                         time_step,
@@ -287,6 +319,7 @@ class FireBrigadeAgent(Agent):
                         selected_entity.get_x(),
                         selected_entity.get_y(),
                     )
+                    self.fire_calls_attended.append(self.target.get_id())
                 else:
                     self.target = None
 
@@ -335,9 +368,9 @@ class FireBrigadeAgent(Agent):
         # ) / tau
         # score = -np.log(score + eps)
 
-        # exploration term
-        x = np.log(self.current_time_step) / max(1, self.value_selection_freq[selected_value])
-        score += np.sqrt(2 * len(self.bdi_agent.domain) * x)
+        # # exploration term
+        # x = np.log(self.current_time_step) / max(1, self.value_selection_freq[selected_value])
+        # score += np.sqrt(2 * len(self.bdi_agent.domain) * x)
 
         # Building score
         if isinstance(entity, Area):
@@ -367,6 +400,48 @@ class FireBrigadeAgent(Agent):
         cmd = AKExtinguish(self.get_id(), time_step, target, target_x, target_y, water)
         msg = cmd.prepare_cmd()
         self.send_msg(msg)
+
+    def agent_look_ahead_completed_cb(self, world):
+        if self.la_tuples:
+            create_update_look_ahead_tuples(world, self.la_tuples, stage=2)
+
+    def write_la_tuples_to_file(self):
+        time_step = []
+        entity_ids = []
+        fire_1 = []
+        temp_1 = []
+        fire_2 = []
+        temp_2 = []
+        fire_3 = []
+        temp_3 = []
+
+        for la_record in self.la_tuples:
+            time_step.append(self.current_time_step)
+            entity_ids.append(la_record.entity_id)
+            fire_1.append(la_record.fire_1)
+            temp_1.append(la_record.temp_1)
+            fire_2.append(la_record.fire_2)
+            temp_2.append(la_record.temp_2)
+            fire_3.append(la_record.fire_3)
+            temp_3.append(la_record.temp_3)
+
+        look_ahead_history_df = pd.DataFrame({
+            'time_step': time_step,
+            'entity_id': entity_ids,
+            'fieriness_1': fire_1,
+            'temperature_1': temp_1,
+            'fieriness_2': fire_2,
+            'temperature_2': temp_2,
+            'fieriness_3': fire_3,
+            'temperature_3': temp_3,
+        })
+        file_name = f'{self.name}_{self.get_id().get_value()}.csv'
+        look_ahead_history_df.to_csv(
+            file_name,
+            mode='a',
+            index=False,
+            header=not os.path.exists(file_name),
+        )
 
 
 class AKExtinguish(Command):

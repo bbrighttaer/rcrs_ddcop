@@ -342,3 +342,6 @@ class AmbulanceTeamAgent(Agent):
                 cv.append(c)
 
         return cv
+
+    def agent_look_ahead_completed_cb(self, world):
+        ...

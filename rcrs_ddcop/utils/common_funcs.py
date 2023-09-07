@@ -1,8 +1,8 @@
 import math
+from dataclasses import dataclass
 from typing import List, Iterable
 
 import numpy as np
-from rcrs_core.agents.agent import Agent
 from rcrs_core.entities import standardEntityFactory
 from rcrs_core.entities.ambulanceTeam import AmbulanceTeamEntity
 from rcrs_core.entities.building import Building
@@ -10,12 +10,22 @@ from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
 from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.human import Human
-from rcrs_core.entities.refuge import Refuge
 from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 
 from rcrs_ddcop.core.enums import Fieryness
+
+
+@dataclass
+class LookAheadTuple:
+    entity_id: int
+    fire_1: int
+    temp_1: int
+    fire_2: int
+    temp_2: int
+    fire_3: int
+    temp_3: int
 
 
 def distance(x1, y1, x2, y2):
@@ -50,22 +60,22 @@ def get_props(entity):
 
 def get_building_score(building: Building) -> float:
     """scores a given building by considering its building material and other building properties"""
-    building_code = building.get_building_code()
+    # building_code = building.get_building_code()
     building_code_score = 0.  # - np.log(building_code + 1e-5)
     temperature = building.get_temperature()
-    building_score = temperature if building.get_fieryness() > Fieryness.BURNING else 0.
+    building_score = temperature if building.get_fieryness() >= Fieryness.BURNING else 0.
     return np.log(max(1, building_score)) + building_code_score
 
 
 def get_road_score(world_model: WorldModel, road: Road) -> float:
     """scores a given road entity"""
     scores = []
-    for neighbor_id in road.get_neighbours():
-        neighbor = world_model.get_entity(neighbor_id)
-        if isinstance(neighbor, Building) and not (isinstance(neighbor, Refuge) or isinstance(neighbor, Agent)):
-            scores.append(get_building_score(neighbor))
-    if scores:
-        return float(np.mean(scores))
+    # for neighbor_id in road.get_neighbours():
+    #     neighbor = world_model.get_entity(neighbor_id)
+    #     if isinstance(neighbor, Building) and not (isinstance(neighbor, Refuge) or isinstance(neighbor, Agent)):
+    #         scores.append(get_building_score(neighbor))
+    # if scores:
+    #     return float(np.mean(scores))
     return 0.
 
 
@@ -186,4 +196,47 @@ def neighbor_constraint(agent_id: int, context: WorldModel, agent_vals: dict):
 
 
 def inspect_buildings_for_domain(entities: Iterable[Entity]):
-    return list(filter(lambda x: x.get_fieryness() < Fieryness.BURNT_OUT, entities))
+    return list(filter(lambda x: x.get_fieryness() < Fieryness.INFERNO, entities))
+
+
+def create_update_look_ahead_tuples(
+        world_model: WorldModel,
+        tuples: List[LookAheadTuple] = None,
+        stage: int = 0,
+) -> List[LookAheadTuple] | None:
+    """
+    Create/update look-ahead tuples from the given world.
+
+    :param world_model: world model for constructing tuples.
+    :param tuples: existing tuples to update.
+    :param stage: indicates the group of variables to gather. Must be specified when tuples are to be updated
+    :return: dictionary of `LookAheadTuple` objects with entity ID as key (create) or None for update operation.
+    """
+    # update
+    if tuples and stage:
+        for la in tuples:
+            entity = world_model.get_entity(EntityID(la.entity_id))
+            if stage == 2:
+                if isinstance(entity, Building):
+                    la.fire_2 = entity.get_fieryness()
+                    la.temp_2 = entity.get_temperature()
+            elif stage == 3:
+                if isinstance(entity, Building):
+                    la.fire_3 = entity.get_fieryness()
+                    la.temp_3 = entity.get_temperature()
+    else:
+        # creation
+        la_tuples = []
+        for entity in world_model.get_entities():
+            if isinstance(entity, Building):
+                entity_id = entity.get_id().get_value()
+                la_tuples.append(LookAheadTuple(
+                    entity_id=entity_id,
+                    fire_1=entity.get_fieryness(),
+                    temp_1=entity.get_temperature(),
+                    fire_2=-1,
+                    temp_2=-1,
+                    fire_3=-1,
+                    temp_3=-1,
+                ))
+        return la_tuples

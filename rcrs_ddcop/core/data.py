@@ -1,7 +1,10 @@
+import math
 from typing import Iterable
 
 import networkx as nx
 import numpy as np
+import pandas as pd
+import smogn
 import torch
 from rcrs_core.entities import standardEntityFactory
 from rcrs_core.entities.area import Area
@@ -66,20 +69,21 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
         entity = world_model.get_entity(EntityID(node))
         if isinstance(entity, Building):
             node_features.append([
-                                     entity.get_fieryness(),
-                                     entity.get_temperature(),
-                                     entity.get_brokenness(),
-                                     entity.get_building_code(),
-                                     get_building_fire_index(entity, world_model),
-                                 ] + [0.] * 3)
-        elif isinstance(entity, Human):
-            node_features.append([0.] * 5 + [
-                entity.get_buriedness(),
-                entity.get_damage(),
-                entity.get_hp(),
+                entity.get_fieryness(),
+                entity.get_temperature(),
+                entity.get_brokenness(),
+                entity.get_building_code(),
+                get_building_fire_index(entity, world_model)
             ])
+            # ] + [0.] * 3)
+        # elif isinstance(entity, Human):
+        #     node_features.append([0.] * 5 + [
+        #         entity.get_buriedness(),
+        #         entity.get_damage(),
+        #         entity.get_hp(),
+        #     ])
         else:
-            node_features.append([0.] * 8)
+            node_features.append([0.] * 5)
 
     node_feat_arr = torch.tensor(node_features, dtype=torch.float)
     data = Data(
@@ -102,14 +106,14 @@ def state_to_world(data: Data) -> WorldModel:
             id=node_id
         )
         if isinstance(entity, Building):
-            entity.set_fieryness(feat[0].item())
-            entity.set_temperature(feat[1].item())
-            entity.set_brokenness(feat[2].item())
-            entity.set_building_code(feat[3].item())
-        elif isinstance(entity, Human):
-            entity.set_buriedness(feat[5].item())
-            entity.set_damage(feat[6].item())
-            entity.set_hp(feat[7].item())
+            entity.set_fieryness(int(feat[0].item()))
+            entity.set_temperature(int(feat[1].item()))
+            entity.set_brokenness(int(feat[2].item()))
+            entity.set_building_code(int(feat[3].item()))
+        # elif isinstance(entity, Human):
+        #     entity.set_buriedness(round(feat[5].item()))
+        #     entity.set_damage(round(feat[6].item()))
+        #     entity.set_hp(round(feat[7].item()))
         world_model.add_entity(entity)
 
     return world_model
@@ -167,3 +171,32 @@ def get_building_fire_index(building: Building, world_model: WorldModel):
         if isinstance(entity, Building):
             neighbor_temps.append(entity.get_temperature())
     return max(neighbor_temps) if neighbor_temps else 0.
+
+
+def correct_skewed_data(X, Y, columns, target_col):
+    data = np.concatenate([X, Y], axis=1)
+
+    # see https://github.com/nickkunz/smogn/blob/master/examples/smogn_example_3_adv.ipynb
+    rg_mtrx = [
+        [0, 0, 0],  ## under-sample
+        [1, 1, 0],  ## over-sample
+        [2, 1, 0],  ## over-sample
+        [3, 1, 0],  ## over-sample
+        [4, 1, 0],  ## under-sample
+        [5, 1, 0],  ## under-sample
+        [6, 1, 0],  ## under-sample
+        [7, 0, 0],  ## under-sample
+        [8, 0, 0],  ## under-sample
+    ]
+    data_bal = smogn.smoter(
+        data=pd.DataFrame(data, columns=columns),
+        y=target_col,
+        rel_thres=0.1,
+        rel_method='manual',
+        rel_ctrl_pts_rg=rg_mtrx,
+    )
+    data_sampled = data_bal.to_numpy()
+    X_ = data_sampled[:, :X.shape[-1]]
+    Y_ = data_sampled[:, X.shape[-1]:]
+    return X_, Y_
+

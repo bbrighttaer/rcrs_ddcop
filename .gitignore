@@ -278,5 +278,6 @@ pyrightconfig.json
 *.pt
 *.json
 *.bin
+*.csv
 
 # End of https://www.toptal.com/developers/gitignore/api/pycharm+all,python,jupyternotebooks

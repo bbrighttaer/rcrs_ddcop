@@ -39,7 +39,10 @@ class ExperienceBuffer:
                            the size of the buffer, a ValueError is thrown.
         :return: list of experiences.
         """
-        return random.sample(self.memory, batch_size)
+        if batch_size < len(self):
+            return random.sample(self.memory, batch_size)
+        else:
+            return random.sample(self.memory, len(self))
 
     def __len__(self):
         return len(self.memory)

@@ -65,7 +65,7 @@ class BFSSearch:
                 if current_entity is None:
                     raise RuntimeError('Found a node with no ancestor! Something is broken.')
                 path.append(current_entity.get_value())
-            return list(reversed(path))
+            return list(reversed(path))[:2]
 
     def breadth_first_search_for_civilian(self, start: EntityID, goals: List[EntityID]):
         open_list = []

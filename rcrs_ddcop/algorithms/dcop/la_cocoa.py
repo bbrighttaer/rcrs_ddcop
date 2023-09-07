@@ -30,11 +30,12 @@ class LA_CoCoA(DCOP):
         self._can_start = False
         self.state = self.IDLE
         self.neighbor_states = {}
+        self.neighbor_values = {}
         self.cost_map = {}
         self.node_feature_dim = 8
         # self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
-        self.unary_horizon_size = 5
+        self.unary_horizon_size = 3
         self._sent_inquiries_list = []
 
         # Graph NN case
@@ -59,7 +60,7 @@ class LA_CoCoA(DCOP):
                 'objective': 'reg:squarederror',
                 'max_depth': 10,
                 'learning_rate': 1e-2,
-                'reg_lambda': 1e-3,
+                'reg_lambda': 1e-2,
             }
         )
         self._time_step = 0
@@ -79,6 +80,7 @@ class LA_CoCoA(DCOP):
         self.cost_map.clear()
         self.value = None
         self.neighbor_states.clear()
+        self.neighbor_values.clear()
         self._time_step += 1
         self._sent_inquiries_list.clear()
 
@@ -125,6 +127,7 @@ class LA_CoCoA(DCOP):
                 self.send_update_state_message(child, {
                     'agent_id': self.agent.agent_id,
                     'state': self.state,
+                    'value': self.value,
                 })
         elif set(self.graph.neighbors) - set(self._sent_inquiries_list):
             self.log.info('Sending remaining inquiry message')
@@ -172,7 +175,7 @@ class LA_CoCoA(DCOP):
         if not total_cost_dict:
             total_cost_dict = {value: {'cost': 0., 'params': {}} for value in self.domain}
 
-        self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
+        # self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
 
         # GNN: copy current weights
         # model = self._create_nn_model()
@@ -182,17 +185,18 @@ class LA_CoCoA(DCOP):
         # apply unary constraints
         belief = world_to_state(self.agent.belief)
         for i in range(self.unary_horizon_size):
+            world = state_to_world(belief)
             for val in total_cost_dict:
                 try:
-                    util = self.agent.unary_constraint(state_to_world(belief), val)
+                    util = self.agent.unary_constraint(world, val)
                     total_cost_dict[val]['cost'] += util
                 except AttributeError as e:
                     pass
 
-            self.log.debug(f'Cost dict (unary-{i+1}): {total_cost_dict}')
+            # self.log.debug(f'Cost dict (unary-{i+1}): {total_cost_dict}')
 
             # predict next state and update belief for utility estimation
-            if self.unary_horizon_size > 1 and self._model_trainer.model:
+            if 1 < self.unary_horizon_size > i + 1 and self._model_trainer.model:
                 # normalize
                 x = self._model_trainer.normalizer.transform(belief.x)
                 x_matrix = DMatrix(data=x)
@@ -220,12 +224,21 @@ class LA_CoCoA(DCOP):
             #     # don't use model if no training has happened yet
             #     break
 
+        # notify agent about predictions
+        if self.unary_horizon_size > 1:
+            self.agent.look_ahead_completed_cb(state_to_world(belief))
+
         # self.log.info(f'Total cost dict: {total_cost_dict}')
         if self.agent.optimization_op == 'max':
-            op = max
+            op = np.max
         else:
-            op = min
-        self.value = op(total_cost_dict, key=lambda d: total_cost_dict[d]['cost'])
+            op = np.min
+
+        costs = np.array([total_cost_dict[d]['cost'] for d in total_cost_dict])
+        vals_list = list(total_cost_dict.keys())
+        opt_indices = np.argwhere(costs == op(costs)).flatten().tolist()
+        sel_idx = np.random.choice(opt_indices)
+        self.value = vals_list[sel_idx]
         best_params = total_cost_dict[self.value]['params']
         self.cost = total_cost_dict[self.value]['cost']
         self.log.info(f'Best params: {best_params}, {self.value}')
@@ -239,6 +252,7 @@ class LA_CoCoA(DCOP):
             self.send_update_state_message(child, {
                 'agent_id': self.agent.agent_id,
                 'state': self.state,
+                'value': self.value,
             })
 
         self.cost_map.clear()
@@ -299,6 +313,9 @@ class LA_CoCoA(DCOP):
 
         util_matrix = np.zeros((len(iter_list), len(sender_domain)))
 
+        # compile list of values already picked by self and neighbors
+        neighbor_vals = list(self.neighbor_values.values())
+
         # start look-ahead util estimation
         for h in range(self.bin_horizon_size):
             parsed_belief = state_to_world(belief)
@@ -310,7 +327,11 @@ class LA_CoCoA(DCOP):
                         sender: value_j,
                         self.agent.agent_id: value_i,
                     }
-                    util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
+                    # util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
+                    if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j == value_i:
+                        util_matrix[i, j] = 5.
+                    else:
+                        util_matrix[i, j] = 0.
 
             # belief.x = self.predict_next_state(belief)
 
@@ -327,6 +348,7 @@ class LA_CoCoA(DCOP):
         sender = data['agent_id']
         if sender in self.graph.neighbors:
             self.neighbor_states[str(sender)] = data['state']
+            self.neighbor_values[str(sender)] = data['value']
 
         if data['state'] == self.DONE and self.value is None:
             self._can_start = True

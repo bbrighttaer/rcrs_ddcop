@@ -1,4 +1,3 @@
-import datetime
 import functools
 import threading
 from collections import deque
@@ -36,12 +35,14 @@ class BDIAgent(object):
         self._neighbor_previous_values = {}
         self.experience_buffer = ExperienceBuffer(lbl=self.label)
         self._timeout = 3.5
+        self.look_ahead_tuples = None
 
         self._decision_timeout_count = 0
 
         # agent-type constraint functions
         self.agent_type_neighbor_constraint = agent.neighbor_constraint
         self.unary_constraint = agent.unary_constraint
+        self.agent_look_ahead_completed_cb = agent.agent_look_ahead_completed_cb
 
         # manages when control is returned to agent entity
         self._value_selection_evt = threading.Event()
@@ -133,6 +134,9 @@ class BDIAgent(object):
 
     def belief_revision_function(self):
         ...
+
+    def look_ahead_completed_cb(self, world):
+        self.agent_look_ahead_completed_cb(world)
 
     def neighbor_constraint(self, *args, **kwargs):
         """
@@ -341,6 +345,12 @@ class BDIAgent(object):
 
     def record_deliberation_time(self, t, val):
         self.dcop.record_agent_metric('deliberation time', t, val)
+
+    def record_agent_action(self, action, t, val):
+        self.dcop.record_agent_metric(action, t, val)
+
+    def record_agent_decision(self, t, val):
+        self.dcop.record_agent_metric('decision', t, val)
 
     def handle_busy_agent(self, message):
         data = message['payload']
