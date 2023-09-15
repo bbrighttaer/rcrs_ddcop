@@ -62,6 +62,7 @@ class FireBrigadeAgent(Agent):
         self.building_to_road = defaultdict(list)
         self.fire_calls_attended = []
         self.la_tuples = None
+        self.consistency = 0
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -214,61 +215,22 @@ class FireBrigadeAgent(Agent):
 
         self.cached_exp = state
 
-        # if a target is already assigned, focus on this target
-        # if self.target and (
-        #         (isinstance(self.target, Human) and self.target.get_buriedness() > 0 and self.target.get_hp() > 0)
-        #         or (isinstance(self.target, Building) and self.target.get_fieryness() < Fieryness.INFERNO
-        #             and self.target.get_id() not in self.fire_calls_attended)
-        # ):
-        #     self.bdi_agent.domain = [self.target.get_id().get_value()]
-        #     self.bdi_agent.send_busy_to_neighbors()
-        #     self.bdi_agent.record_agent_decision(time_step, self.target_initial_state)
-        #
-        #     # if the location of the target has been reached, rescue the target else plan path to the target
-        #     if isinstance(self.target, Human) and self.target.position.get_value() == self.location().get_id():
-        #         self.Log.info(f'Rescuing target {self.target.get_id()}')
-        #         self.send_rescue(time_step, self.target.get_id())
-        #
-        #     # check if there's fire to be put out
-        #     elif isinstance(self.target, Building) \
-        #             and self.get_neighboring_road(self.target) == self.location().get_id():
-        #         # check if water tank should be refilled
-        #         if self.me().get_water() < WATER_OUT:
-        #             self.refill_water_tank()
-        #             self.target = None
-        #
-        #         elif self.target.get_fieryness() >= Fieryness.BURNING:
-        #             self.Log.info(f'Extinguishing building {self.target.get_id()}')
-        #             self.send_extinguish(time_step, self.target.get_id(), self.target.get_x(), self.target.get_y())
-        #             self.fire_calls_attended.append(self.target.get_id())
-        #
-        #             # monitor proactivity
-        #             if self.target_initial_state == 1:
-        #                 self.bdi_agent.record_agent_action('extinguish', time_step, 1)
-        #
-        #         else:
-        #             self.target = None
-        #
-        #     # on-course to target
-        #     else:
-        #         self.move_to_target(time_step)
-        #
-        # # there is no target, decide on what to do
-        # else:
         # update domain
-        targets = self.get_targets(change_set_entities)
+        # targets = self.get_targets(change_set_entities)
         domain = [c.get_id().get_value() for c in chain(
-            targets,
+            # targets,
             inspect_buildings_for_domain(self.buildings_for_domain),
-            self.roads,
+            # self.roads,
         ) if c.get_id() not in self.fire_calls_attended]
+        if not domain:
+            domain = [c.get_id().get_value() for c in self.roads]
         self.bdi_agent.domain = domain
 
         if not domain:
             self.Log.warning('Domain set is empty')
             return
 
-        self.target = None
+        # self.target = None
         self.deliberate(state, time_step)
         time_taken = time.perf_counter() - start
         self.bdi_agent.record_deliberation_time(time_step, time_taken)
@@ -296,6 +258,12 @@ class FireBrigadeAgent(Agent):
 
         # rescue task
         if isinstance(selected_entity, Human) or isinstance(selected_entity, Building):
+            if self.target and self.target.get_id().get_value() == selected_entity.get_id().get_value():
+                self.consistency += 1
+            elif isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING:
+                self.consistency = 1
+            else:
+                self.consistency = 0
             self.target = selected_entity
 
             # if agent's location is the same as the target's location, start rescue mission
@@ -306,7 +274,7 @@ class FireBrigadeAgent(Agent):
             # check if water tank should be refilled
             elif isinstance(selected_entity, Building) and self.me().get_water() < WATER_OUT:
                 self.refill_water_tank()
-                self.target = None
+                # self.target = None
 
             # check if fire should be put out
             elif isinstance(selected_entity, Building) \
@@ -319,9 +287,11 @@ class FireBrigadeAgent(Agent):
                         selected_entity.get_x(),
                         selected_entity.get_y(),
                     )
-                    self.fire_calls_attended.append(self.target.get_id())
-                else:
-                    self.target = None
+                    self.bdi_agent.record_consistent_decision(time_step, self.consistency)
+                    self.Log.debug(f'Consistency: {self.consistency}')
+                    self.consistency = 0
+                # else:
+                #     self.target = None
 
             else:
                 self.move_to_target(time_step)

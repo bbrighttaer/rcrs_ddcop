@@ -13,6 +13,7 @@ from rcrs_core.entities.human import Human
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 from torch_geometric.data import Data
+import ImbalancedLearningRegression as iblr
 
 from rcrs_ddcop.core.enums import Fieryness
 
@@ -73,7 +74,8 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
                 entity.get_temperature(),
                 entity.get_brokenness(),
                 entity.get_building_code(),
-                get_building_fire_index(entity, world_model)
+                get_building_fire_index(entity, world_model),
+                0,
             ])
             # ] + [0.] * 3)
         # elif isinstance(entity, Human):
@@ -83,7 +85,7 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
         #         entity.get_hp(),
         #     ])
         else:
-            node_features.append([0.] * 5)
+            node_features.append([0.] * 6)
 
     node_feat_arr = torch.tensor(node_features, dtype=torch.float)
     data = Data(
@@ -146,6 +148,17 @@ def process_data(raw_data: list[list[Data]], transform=None) -> list[Data]:
         state = record[0]
         s_prime = record[1]
 
+        # remove uninformative rows
+        idx = state.x[:, 0] != s_prime.x[:, 0]
+        state.x = state.x[idx]
+        s_prime.x = s_prime.x[idx]
+        if len(state.x) == 0 or len(s_prime.x) == 0:
+            continue
+
+        # identify change in fieriness
+        diff = torch.clip(state.x[:, 0] - s_prime.x[:, 0], 0, 1).view(-1, 1)
+        state.x = torch.concat([state.x[:, :-1], diff], dim=1)
+
         # gather data for computing normalization statistics
         transform_data.extend([state.x.numpy(), s_prime.x.numpy()])
 
@@ -160,7 +173,8 @@ def process_data(raw_data: list[list[Data]], transform=None) -> list[Data]:
         data.append(d_instance)
 
     # compute data normalization stats
-    transform.fit(np.concatenate(transform_data))
+    if transform_data:
+        transform.fit(np.concatenate(transform_data))
     return data
 
 
@@ -188,10 +202,17 @@ def correct_skewed_data(X, Y, columns, target_col):
         [7, 0, 0],  ## under-sample
         [8, 0, 0],  ## under-sample
     ]
-    data_bal = smogn.smoter(
+    # data_bal = smogn.smoter(
+    #     data=pd.DataFrame(data, columns=columns),
+    #     y=target_col,
+    #     rel_thres=0.1,
+    #     rel_method='manual',
+    #     rel_ctrl_pts_rg=rg_mtrx,
+    # )
+    data_bal = iblr.gn(
         data=pd.DataFrame(data, columns=columns),
-        y=target_col,
-        rel_thres=0.1,
+        y='fieryness_x',
+        rel_thres=0.5,
         rel_method='manual',
         rel_ctrl_pts_rg=rg_mtrx,
     )

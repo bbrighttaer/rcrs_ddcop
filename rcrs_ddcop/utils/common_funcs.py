@@ -196,7 +196,7 @@ def neighbor_constraint(agent_id: int, context: WorldModel, agent_vals: dict):
 
 
 def inspect_buildings_for_domain(entities: Iterable[Entity]):
-    return list(filter(lambda x: x.get_fieryness() < Fieryness.INFERNO, entities))
+    return list(filter(lambda x: x.get_fieryness() < Fieryness.BURNT_OUT, entities))
 
 
 def create_update_look_ahead_tuples(

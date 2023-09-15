@@ -201,8 +201,8 @@ class XGBTrainer:
 
     def load_model(self):
         self._model = xgb.Booster()
-        model_file_name = f'{self.label}_model_static.json'
-        scaler_file_name = f'{self.label}_scaler_static.bin'
+        model_file_name = f'{self.label}_model.json'
+        scaler_file_name = f'{self.label}_scaler.bin'
         # if 'FireBrigade' in self.label:
         #     model_file_name = 'FireBrigadeAgent_210552869_model_static.json'
         #     scaler_file_name = 'FireBrigadeAgent_210552869_scaler_static.bin'
@@ -228,34 +228,38 @@ class XGBTrainer:
         # with self:
         #     self.log.debug('Training initiated...')
         #
+        #     columns = [
+        #         'fieryness_x', 'temperature_x', 'brokenness_x', 'building_code_x', 'fire_index_x', 'extinguished_x',
+        #         'fieryness_y', 'temperature_y', 'brokenness_y', 'building_code_y', 'fire_index_y', 'extinguished_y',
+        #     ]
+        #
         #     # start training block
         #     batch_sz = 100
         #     sampled_data = self.experience_buffer.sample(batch_sz)
         #     dataset = process_data(sampled_data, transform=self.normalizer)
-        #     data = next(iter(DataLoader(dataset, batch_size=batch_sz)))
-        #
-        #     # normalize data to zero mean, unit variance
-        #     columns = [
-        #         'fieryness_x', 'temperature_x', 'brokenness_x', 'building_code_x', 'fire_index_x',
-        #         'fieryness_y', 'temperature_y', 'brokenness_y', 'building_code_y', 'fire_index_y',
-        #     ]
-        #     try:
-        #         X, Y = correct_skewed_data(data.x, data.y, columns, 'fieryness_x')
-        #     except ValueError as e:
-        #         self.log.warning(f'Training terminated due to: {str(e)}')
+        #     if not dataset:
+        #         self.log.warning('Training terminated due to empty dataset after processing')
         #         return
         #
-        #     # # save data
-        #     # concat_data = np.concatenate([data.x, data.y], axis=1)
-        #     # df = pd.DataFrame(
-        #     #     concat_data,
-        #     #     columns=[
-        #     #         'fieryness_x', 'temperature_x', 'brokenness_x', 'building_code_x', 'fire_index_x',
-        #     #         'fieryness_y', 'temperature_y', 'brokenness_y', 'building_code_y', 'fire_index_y',
-        #     #     ],
-        #     # )
-        #     # df.to_csv(f'{self.label}_training_data.csv', index=False)
+        #     # use PyG to expand all data instances
+        #     data = next(iter(DataLoader(dataset, batch_size=len(dataset))))
         #
+        #     if len(data) < 50:
+        #         self.log.warning(f'Training terminated due to insufficient samples: {len(data)}')
+        #         return
+        #
+        #     self._save_training_data(data.x, data.y, columns, 'original')
+        #
+        #     # try:
+        #     #     X, Y = correct_skewed_data(data.x, data.y, columns, 'fieryness_x')
+        #     # except ValueError as e:
+        #     #     self.log.warning(f'Training terminated due to: {str(e)}')
+        #     #     return
+        #     X, Y = data.x, data.y
+        #
+        #     self._save_training_data(X, Y, columns, 'corrected')
+        #
+        #     # normalize data to zero mean, unit variance
         #     X = self.normalizer.transform(X)
         #     Y = self.normalizer.transform(Y)
         #     # wts = np.array([1. if 3 > e > 0 else 0.2 for e in data.y[:, 0]])
@@ -271,8 +275,8 @@ class XGBTrainer:
         #     X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, shuffle=True)
         #
         #     # put data into xgb matrix
-        #     dtrain = xgb.DMatrix(data=X_train, label=y_train)
-        #     dval = xgb.DMatrix(data=X_val, label=y_val)
+        #     dtrain = xgb.DMatrix(data=X_train, label=y_train[:, :-1])
+        #     dval = xgb.DMatrix(data=X_val, label=y_val[:, :-1])
         #
         #     # train model
         #     model = xgb.train(
@@ -293,13 +297,22 @@ class XGBTrainer:
         #         xgb_model=self._model,
         #     )
         #
-        #     # if self.best_model_config:
-        #     #     model.load_config(self.best_model_config)
-        #     #     self._model = model
-        #     #     model.save_model(f'{self.label}_model.json')
-        #     #     joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
+        #     if self.best_model_config:
+        #         model.load_config(self.best_model_config)
+        #         self._model = model
+        #         # model.save_model(f'{self.label}_model.json')
+        #         # joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
 
         return self.best_score
+
+    def _save_training_data(self, X, Y, columns, suffix):
+        # save data
+        concat_data = np.concatenate([X, Y], axis=1)
+        df = pd.DataFrame(
+            concat_data,
+            columns=columns,
+        )
+        df.to_csv(f'{self.label}_training_data_{suffix}.csv', index=False)
 
 
 class ModelCheckpointCallback(TrainingCallback):

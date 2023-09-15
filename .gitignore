@@ -273,7 +273,8 @@ poetry.toml
 pyrightconfig.json
 
 # tensorboard
-/runs*
+/runs_
+/runs
 
 *.pt
 *.json

@@ -352,6 +352,9 @@ class BDIAgent(object):
     def record_agent_decision(self, t, val):
         self.dcop.record_agent_metric('decision', t, val)
 
+    def record_consistent_decision(self, t, val):
+        self.dcop.record_agent_metric('consistency', t, val)
+
     def handle_busy_agent(self, message):
         data = message['payload']
         sender = data['agent_id']

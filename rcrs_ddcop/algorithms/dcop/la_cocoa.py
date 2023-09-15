@@ -35,7 +35,7 @@ class LA_CoCoA(DCOP):
         self.node_feature_dim = 8
         # self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
-        self.unary_horizon_size = 3
+        self.unary_horizon_size = 2
         self._sent_inquiries_list = []
 
         # Graph NN case
@@ -59,8 +59,8 @@ class LA_CoCoA(DCOP):
             model_params={
                 'objective': 'reg:squarederror',
                 'max_depth': 10,
-                'learning_rate': 1e-2,
-                'reg_lambda': 1e-2,
+                'learning_rate': 1e-3,
+                # 'reg_lambda': 1e-5,
             }
         )
         self._time_step = 0
@@ -198,13 +198,16 @@ class LA_CoCoA(DCOP):
             # predict next state and update belief for utility estimation
             if 1 < self.unary_horizon_size > i + 1 and self._model_trainer.model:
                 # normalize
-                x = self._model_trainer.normalizer.transform(belief.x)
+                x = belief.x.numpy()
+                # x = np.concatenate([x[:, :-1], np.ones((x.shape[0], 1))], axis=1)
+                # x = self._model_trainer.normalizer.transform(x)
                 x_matrix = DMatrix(data=x)
 
                 # predict
                 output = self._model_trainer.model.predict(x_matrix)
 
                 # revert normalization
+                output = np.concatenate([output, np.ones((x.shape[0], 1))], axis=1)
                 x = self._model_trainer.normalizer.inverse_transform(output)
                 x = np.clip(x, a_min=0., a_max=None)
                 belief.x = torch.tensor(x, dtype=torch.float)
@@ -225,7 +228,7 @@ class LA_CoCoA(DCOP):
             #     break
 
         # notify agent about predictions
-        if self.unary_horizon_size > 1:
+        if self.unary_horizon_size > 1 and self._model_trainer.model:
             self.agent.look_ahead_completed_cb(state_to_world(belief))
 
         # self.log.info(f'Total cost dict: {total_cost_dict}')
@@ -328,10 +331,12 @@ class LA_CoCoA(DCOP):
                         self.agent.agent_id: value_i,
                     }
                     # util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
-                    if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j == value_i:
-                        util_matrix[i, j] = 5.
-                    else:
-                        util_matrix[i, j] = 0.
+                    # if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j == value_i:
+                    #     util_matrix[i, j] = 5.
+                    # else:
+                    #     util_matrix[i, j] = 0.
+                    eps = 1e-20
+                    util_matrix[i, j] = np.log(eps) if value_j == value_i else -np.log(eps)
 
             # belief.x = self.predict_next_state(belief)
 
