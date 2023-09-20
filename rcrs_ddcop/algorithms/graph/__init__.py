@@ -22,7 +22,7 @@ class DynaGraph:
         self.exec_started = False
 
     def has_no_neighbors(self):
-        return not self.parent and not self.children
+        return not self.parent and not self.children and not self.pseudo_parents and self.pseudo_children
 
     def is_neighbor(self, agent_id):
         return self.parent == agent_id or agent_id in self.children
@@ -39,11 +39,18 @@ class DynaGraph:
 
     @property
     def neighbors(self):
+        """only parent and children"""
         neighbors = []
         if self.children:
             neighbors.extend(self.children)
         if self.parent:
             neighbors.append(self.parent)
+        return neighbors
+
+    @property
+    def all_neighbors(self):
+        """considers parent, children, pseudo-parents, and pseudo-children"""
+        neighbors = self.neighbors + list(self.pseudo_children) + list(self.pseudo_parents)
         return neighbors
 
     def start_dcop(self):

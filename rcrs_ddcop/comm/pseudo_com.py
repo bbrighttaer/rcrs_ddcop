@@ -110,11 +110,12 @@ class AgentPseudoComm(object):
             })
         )
 
-    def send_announce_response_ignored_message(self, agent_id):
+    def send_pseudo_parent_request_message(self, agent_id, **kwargs):
         self._send_to_agent(
             agent_id=agent_id,
-            body=messaging.create_announce_response_ignored_message({
+            body=messaging.create_pseudo_parent_reqeust_message({
                 'agent_id': self.agent_id,
+                **kwargs,
             })
         )
 
@@ -207,6 +208,15 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_inquiry_message(data),
+        )
+
+    def send_pseudo_child_added_message(self, agent_id, **kwargs):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_pseudo_child_added({
+                'agent_id': self.agent_id,
+                **kwargs,
+            })
         )
 
     def share_information_with_agents(self, agent_ids: List[int], data: dict, sharing_type: InfoSharingType):

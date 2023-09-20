@@ -15,12 +15,13 @@ class AgentMsgTypes(StrEnum):
 class DIGCAMsgTypes(StrEnum):
     ANNOUNCE = auto()
     ADD_ME = auto()
-    ANNOUNCE_RESPONSE_IGNORED = auto()
+    PSEUDO_PARENT_REQEUST = auto()
     ANNOUNCE_RESPONSE = auto()
     CHILD_ADDED = auto()
     ALREADY_ACTIVE = auto()
     PARENT_ASSIGNED = auto()
     PARENT_ALREADY_ASSIGNED = auto()
+    PSEUDO_CHILD_ADDED = auto()
 
 
 class DPOPMsgTypes(StrEnum):
@@ -64,8 +65,8 @@ def create_add_me_message(data):
     return _create_msg(DIGCAMsgTypes.ADD_ME, data)
 
 
-def create_announce_response_ignored_message(data):
-    return _create_msg(DIGCAMsgTypes.ANNOUNCE_RESPONSE_IGNORED, data)
+def create_pseudo_parent_reqeust_message(data):
+    return _create_msg(DIGCAMsgTypes.PSEUDO_PARENT_REQEUST, data)
 
 
 def create_announce_response_message(data):
@@ -134,3 +135,7 @@ def create_shared_buried_entities_info_message(data):
 
 def create_busy_message(data):
     return _create_msg(AgentMsgTypes.BUSY, data)
+
+
+def create_pseudo_child_added(data):
+    return _create_msg(DIGCAMsgTypes.PSEUDO_CHILD_ADDED, data)

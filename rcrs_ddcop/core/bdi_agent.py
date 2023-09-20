@@ -150,7 +150,7 @@ class BDIAgent(object):
         Shares information with neighbors
         """
         self.comm.share_information_with_agents(
-            agent_ids=self.graph.neighbors,
+            agent_ids=self.graph.all_neighbors,
             data={
                 'agent_id': self.agent_id,
                 'domain': self._domain,
@@ -221,7 +221,7 @@ class BDIAgent(object):
 
     def remove_unreachable_neighbors(self):
         # remove agents that are out-of-range
-        agents_to_remove = set(self.graph.neighbors) - set(self.agents_in_comm_range)
+        agents_to_remove = set(self.graph.all_neighbors) - set(self.agents_in_comm_range)
         if agents_to_remove:
             self.log.debug(f'Removing {agents_to_remove}')
             for _agent in agents_to_remove:
@@ -259,8 +259,11 @@ class BDIAgent(object):
                 case messaging.DIGCAMsgTypes.ANNOUNCE_RESPONSE:
                     self.graph.receive_announce_response(message)
 
-                case messaging.DIGCAMsgTypes.ANNOUNCE_RESPONSE_IGNORED:
-                    self.graph.receive_announce_response_ignored(message)
+                case messaging.DIGCAMsgTypes.PSEUDO_PARENT_REQEUST:
+                    self.graph.receive_pseudo_parent_request(message)
+
+                case messaging.DIGCAMsgTypes.PSEUDO_CHILD_ADDED:
+                    self.graph.receive_pseudo_child_added_message(message)
 
                 case messaging.DIGCAMsgTypes.ADD_ME:
                     self.graph.receive_add_me(message)

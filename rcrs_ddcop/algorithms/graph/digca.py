@@ -24,7 +24,7 @@ class DIGCA(DynaGraph):
         self.pinged_list_dict = {}
         self.state = State.INACTIVE
         self.announceResponseList = deque()
-        self._ignored_ann_msgs = {}
+        self._pseudo_parent_request_mgs = {}
         self._parent_already_assigned_msgs = {}
         self._timeout_delay_in_seconds = timeout
         self._timeout_delay_start = None
@@ -32,7 +32,7 @@ class DIGCA(DynaGraph):
         self._max_num_neighbors = max_num_of_neighbors
 
     def on_time_step_changed(self):
-        self._ignored_ann_msgs.clear()
+        self._pseudo_parent_request_mgs.clear()
         self._parent_already_assigned_msgs.clear()
         self._has_sent_parent_available = False
         self._timeout_delay_start = time.time()
@@ -70,7 +70,7 @@ class DIGCA(DynaGraph):
             # send announce response ignored messages
             for a in set(self.announceResponseList):
                 if a != selected_agent:
-                    self.comm.send_announce_response_ignored_message(a)
+                    self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
 
             self.announceResponseList.clear()
 
@@ -110,7 +110,7 @@ class DIGCA(DynaGraph):
             self.children.append(sender)
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
             self.comm.send_child_added_message(sender, domain=self.agent.domain)
-            self.log.info(f'Added agent {sender} to children: {self.children}')
+            self.log.debug(f'Added agent {sender} to children: {self.children}')
 
             # update current graph
             # self.channel.basic_publish(
@@ -138,7 +138,7 @@ class DIGCA(DynaGraph):
             self.parent = sender
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
             self.comm.send_parent_assigned_message(sender)
-            self.log.info(f'Set parent node to agent {sender}')
+            self.log.debug(f'Set parent node to agent {sender}')
 
             # update current graph
             # self.channel.basic_publish(
@@ -164,16 +164,32 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received AlreadyActive: {message}')
         self.state = State.INACTIVE
 
-    def receive_announce_response_ignored(self, message):
+    def receive_pseudo_parent_request(self, message):
         sender = message['payload']['agent_id']
-        self._ignored_ann_msgs[sender] = message
-        self.log.info(f'Received announce ignored message from {sender}')
+        self._pseudo_parent_request_mgs[sender] = message
+        self.log.debug(f'Received pseudo parent request message from {sender}')
 
-        if len(set(self._ignored_ann_msgs)) == len(self._get_potential_children()) and not self.agent.value:
+        # add sender as pseudo-child
+        self.pseudo_children.append(sender)
+        self.agent.add_neighbor_domain(sender, message['payload']['domain'])
+        self.comm.send_pseudo_child_added_message(sender, domain=self.agent.domain)
+        self.log.debug(f'Agent {sender} add as pseudo child successfully')
+
+        if len(set(self._pseudo_parent_request_mgs)) == len(self._get_potential_children()) and not self.agent.value:
             self.start_dcop()
 
+    def receive_pseudo_child_added_message(self, message):
+        sender = message['payload']['agent_id']
+        self._parent_already_assigned_msgs[sender] = message
+        self.log.debug(f'Received pseudo child added message from {sender}')
+
+        # add sender as pseudo-parent
+        self.pseudo_parents.append(sender)
+        self.agent.add_neighbor_domain(sender, message['payload']['domain'])
+        self.log.debug(f'Agent {sender} add to pseudo parents successfully')
+
     def receive_parent_available_message(self, message):
-        # self.log.info(f'Received parent available message: {message}')
+        # self.log.debug(f'Received parent available message: {message}')
         if self.parent:
             sender = message['payload']['agent_id']
             self.comm.send_parent_already_assigned_message(sender)
@@ -213,8 +229,12 @@ class DIGCA(DynaGraph):
         if self.parent == agent:
             self.state = State.INACTIVE
             self.parent = None
-        else:
+        elif agent in self.children:
             self.children.remove(agent)
+        elif agent in self.pseudo_parents:
+            self.pseudo_parents.remove(agent)
+        elif agent in self.pseudo_children:
+            self.pseudo_children.remove(agent)
 
         self.agent.remove_neighbor_domain(agent)
 
