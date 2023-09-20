@@ -192,29 +192,6 @@ class FireBrigadeAgent(Agent):
         state = world_to_state(self.world_model)
         self.bdi_agent.state = state
 
-        # share information with neighbors
-        if self.cached_exp:
-            s_prime = world_to_state(
-                world_model=self.world_model,
-                entity_ids=self.cached_exp.nodes_order,
-                edge_index=self.cached_exp.edge_index,
-            )
-            s_prime.nodes_order = self.cached_exp.nodes_order
-            s_prime.node_urns = self.cached_exp.node_urns
-
-            self.bdi_agent.experience_buffer.add((self.cached_exp, s_prime))
-            self.bdi_agent.share_information(exp=[
-                state_to_dict(self.cached_exp), state_to_dict(s_prime)
-            ])
-
-            # record look-ahead results
-            if self.la_tuples:
-                create_update_look_ahead_tuples(self.world_model, self.la_tuples, stage=3)
-                self.write_la_tuples_to_file()
-            self.la_tuples = create_update_look_ahead_tuples(self.world_model)
-
-        self.cached_exp = state
-
         # update domain
         # targets = self.get_targets(change_set_entities)
         domain = [c.get_id().get_value() for c in chain(
@@ -229,6 +206,31 @@ class FireBrigadeAgent(Agent):
         if not domain:
             self.Log.warning('Domain set is empty')
             return
+
+        # construct tuple
+        exp = None
+        if self.cached_exp:
+            s_prime = world_to_state(
+                world_model=self.world_model,
+                entity_ids=self.cached_exp.nodes_order,
+                edge_index=self.cached_exp.edge_index,
+            )
+            s_prime.nodes_order = self.cached_exp.nodes_order
+            s_prime.node_urns = self.cached_exp.node_urns
+
+            self.bdi_agent.experience_buffer.add([self.cached_exp, s_prime])
+
+            exp = [state_to_dict(self.cached_exp), state_to_dict(s_prime)]
+
+            # record look-ahead results
+            if self.la_tuples:
+                create_update_look_ahead_tuples(self.world_model, self.la_tuples, stage=3)
+                self.write_la_tuples_to_file()
+            self.la_tuples = create_update_look_ahead_tuples(self.world_model)
+        self.cached_exp = state
+
+        # share updates with neighbors
+        self.bdi_agent.share_updates_with_neighbors(exp=exp)
 
         # self.target = None
         self.deliberate(state, time_step)

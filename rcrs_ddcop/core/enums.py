@@ -1,7 +1,12 @@
-import enum
+from enum import auto, IntEnum, Enum
 
 
-class Fieryness(enum.IntEnum):
+class AutoName(Enum):
+    def _generate_next_value_(name, start, count, last_values):
+        return name
+
+
+class Fieryness(IntEnum):
     UNBURNT = 0
     HEATING = 1
     BURNING = 2
@@ -13,12 +18,20 @@ class Fieryness(enum.IntEnum):
     BURNT_OUT = 8
 
 
-class BuildingMaterial(enum.IntEnum):
+class BuildingMaterial(IntEnum):
     WOOD = 0
     STEEL = 1
     CONCRETE = 2
 
 
-class InfoSharingType(enum.IntEnum):
+class InfoSharingType(IntEnum):
     STATE_SHARING = 0
     BURIED_HUMAN_SHARING = 1
+
+
+class DynamicGraphCallback(AutoName):
+    AGENT_CONNECTED = auto()
+    CHILD_ADDED = auto()
+    PARENT_ASSIGNED = auto()
+    PSEUDO_CHILD_ADDED = auto()
+    PSEUDO_PARENT_ADDED = auto()

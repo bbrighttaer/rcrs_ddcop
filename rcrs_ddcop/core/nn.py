@@ -120,6 +120,7 @@ class ModelTrainer:
         # start training block
         with train(self.model):
             sampled_data = self.experience_buffer.sample(self.batch_size * 2)
+            sampled_data = [data[1:] for data in sampled_data]  # exclude IDs
             dataset = process_data(sampled_data, transform=self.normalizer)
             data_loader = DataLoader(dataset, batch_size=self.batch_size)
 
@@ -235,7 +236,7 @@ class XGBTrainer:
         #
         #     # start training block
         #     batch_sz = 100
-        #     sampled_data = self.experience_buffer.sample(batch_sz)
+        #     sampled_data = self.exp_buffer.sample(batch_sz)
         #     dataset = process_data(sampled_data, transform=self.normalizer)
         #     if not dataset:
         #         self.log.warning('Training terminated due to empty dataset after processing')

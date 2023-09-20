@@ -42,7 +42,7 @@ class LA_CoCoA(DCOP):
         # self._model_trainer = ModelTrainer(
         #     label=self.label,
         #     model=self.look_ahead_model,
-        #     experience_buffer=self.agent.experience_buffer,
+        #     exp_buffer=self.agent.exp_buffer,
         #     log=self.log,
         #     batch_size=32,
         #     lr=6e-3,

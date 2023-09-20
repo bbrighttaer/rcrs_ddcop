@@ -4,6 +4,7 @@ import time
 from collections import deque
 
 from rcrs_ddcop.algorithms.graph import DynaGraph
+from rcrs_ddcop.core.enums import DynamicGraphCallback
 
 MAX_OUT_DEGREE = 3
 
@@ -112,6 +113,12 @@ class DIGCA(DynaGraph):
             self.comm.send_child_added_message(sender, domain=self.agent.domain)
             self.log.debug(f'Added agent {sender} to children: {self.children}')
 
+            # callbacks
+            self.fire_callbacks(
+                cb_types=[DynamicGraphCallback.CHILD_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
+                agent=sender,
+            )
+
             # update current graph
             # self.channel.basic_publish(
             #     exchange=messaging.COMM_EXCHANGE,
@@ -139,6 +146,12 @@ class DIGCA(DynaGraph):
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
             self.comm.send_parent_assigned_message(sender)
             self.log.debug(f'Set parent node to agent {sender}')
+
+            # callbacks
+            self.fire_callbacks(
+                cb_types=[DynamicGraphCallback.PARENT_ASSIGNED, DynamicGraphCallback.AGENT_CONNECTED],
+                agent=sender,
+            )
 
             # update current graph
             # self.channel.basic_publish(
@@ -175,6 +188,12 @@ class DIGCA(DynaGraph):
         self.comm.send_pseudo_child_added_message(sender, domain=self.agent.domain)
         self.log.debug(f'Agent {sender} add as pseudo child successfully')
 
+        # callbacks
+        self.fire_callbacks(
+            cb_types=[DynamicGraphCallback.PSEUDO_CHILD_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
+            agent=sender,
+        )
+
         if len(set(self._pseudo_parent_request_mgs)) == len(self._get_potential_children()) and not self.agent.value:
             self.start_dcop()
 
@@ -187,6 +206,12 @@ class DIGCA(DynaGraph):
         self.pseudo_parents.append(sender)
         self.agent.add_neighbor_domain(sender, message['payload']['domain'])
         self.log.debug(f'Agent {sender} add to pseudo parents successfully')
+
+        # callbacks
+        self.fire_callbacks(
+            cb_types=[DynamicGraphCallback.PSEUDO_PARENT_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
+            agent=sender,
+        )
 
     def receive_parent_available_message(self, message):
         # self.log.debug(f'Received parent available message: {message}')

@@ -177,7 +177,7 @@ class AmbulanceTeamAgent(Agent):
             s_prime.node_urns = self._cached_exp.node_urns
 
             self.bdi_agent.experience_buffer.add((self._cached_exp, s_prime))
-            self.bdi_agent.share_information(exp=[
+            self.bdi_agent.share_updated_domain_information(exp=[
                 state_to_dict(self._cached_exp), state_to_dict(s_prime)
             ])
         self._cached_exp = state

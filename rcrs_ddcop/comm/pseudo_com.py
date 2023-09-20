@@ -213,37 +213,11 @@ class AgentPseudoComm(object):
     def send_pseudo_child_added_message(self, agent_id, **kwargs):
         self._send_to_agent(
             agent_id=agent_id,
-            body=messaging.create_pseudo_child_added({
+            body=messaging.create_pseudo_child_added_message({
                 'agent_id': self.agent_id,
                 **kwargs,
             })
         )
-
-    def share_information_with_agents(self, agent_ids: List[int], data: dict, sharing_type: InfoSharingType):
-        func = None
-        if sharing_type == InfoSharingType.STATE_SHARING:
-            func = self._info_sharing_thread_safe
-        elif sharing_type == InfoSharingType.BURIED_HUMAN_SHARING:
-            func = self._share_buried_entity_data_thread_safe
-
-        if func:
-            self.threadsafe_execution(
-                functools.partial(func, agent_ids, data),
-            )
-
-    def _info_sharing_thread_safe(self, neighbor_ids: List[int], data: dict):
-        for neighbor in neighbor_ids:
-            self._send_to_agent(
-                agent_id=neighbor,
-                body=messaging.create_shared_info_message(data),
-            )
-
-    def _share_buried_entity_data_thread_safe(self, neighbor_ids: List[int], data: dict):
-        for neighbor in neighbor_ids:
-            self._send_to_agent(
-                agent_id=neighbor,
-                body=messaging.create_shared_buried_entities_info_message(data),
-            )
 
     def threadsafe_execution(self, func: Callable):
         self.client.add_callback_threadsafe(func)
@@ -265,3 +239,40 @@ class AgentPseudoComm(object):
             agent_id=agent_id,
             body=messaging.create_busy_message(data),
         )
+
+    def send_exp_history_disclosure_message(self, agent_id, **kwargs):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_exp_history_disclosure_message({
+                'agent_id': self.agent_id,
+                **kwargs,
+            }),
+        )
+
+    def send_exp_sharing_with_request_message(self, agent_id, **kwargs):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_exp_sharing_with_request_message({
+                'agent_id': self.agent_id,
+                **kwargs,
+            }),
+        )
+
+    def send_exp_sharing_message(self, agent_id, **kwargs):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_exp_sharing_message({
+                'agent_id': self.agent_id,
+                **kwargs,
+            }),
+        )
+
+    def send_neighbor_update_message(self, agent_id, **kwargs):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_neighbor_update_message({
+                'agent_id': self.agent_id,
+                **kwargs,
+            }),
+        )
+

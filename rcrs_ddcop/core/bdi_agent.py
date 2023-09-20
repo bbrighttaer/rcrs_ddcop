@@ -1,11 +1,13 @@
 import functools
 import threading
 from collections import deque
+from functools import partial
 
 from rcrs_core.agents.agent import Agent
 
 from rcrs_ddcop.algorithms.dcop.la_cocoa import LA_CoCoA
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
+from rcrs_ddcop.algorithms.graph.info_sharing import NeighborInfoSharing
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
 from rcrs_ddcop.core.data import dict_to_state
@@ -53,6 +55,7 @@ class BDIAgent(object):
         # create instances of main components
         self.comm = AgentPseudoComm(self)
         self.graph = DIGCA(self, timeout=2.5, max_num_of_neighbors=3)
+        self.info_share = NeighborInfoSharing(self)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
     @property
@@ -145,32 +148,15 @@ class BDIAgent(object):
         """
         return self.agent_type_neighbor_constraint(*args, **kwargs)
 
-    def share_information(self, **kwargs):
+    def share_updates_with_neighbors(self, **kwargs):
         """
         Shares information with neighbors
         """
-        self.comm.share_information_with_agents(
-            agent_ids=self.graph.all_neighbors,
-            data={
-                'agent_id': self.agent_id,
-                'domain': self._domain,
-                'previous_value': self._previous_value,
+        self.comm.threadsafe_execution(
+            partial(
+                self.info_share.send_neighbor_update_message,
                 **kwargs,
-            },
-            sharing_type=InfoSharingType.STATE_SHARING,
-        )
-
-    def share_buried_entities_information(self, agent_ids: list, data):
-        """
-        Shares information of buried entities with the given agents
-        """
-        self.comm.share_information_with_agents(
-            agent_ids=agent_ids,
-            data={
-                'agent_id': self.agent_id,
-                'buried_info': data,
-            },
-            sharing_type=InfoSharingType.BURIED_HUMAN_SHARING,
+            ),
         )
 
     def deliberate(self, time_step):
@@ -181,9 +167,10 @@ class BDIAgent(object):
         self.log.debug('started deliberation...')
         self._value_selection_evt.clear()
 
-        # clear time step buffers
+        # time step changed callbacks
         self.dcop.on_time_step_changed()
         self.graph.on_time_step_changed()
+        self.info_share.on_time_step_changed()
 
         # clear currently assigned value
         self.clear_current_value()
@@ -221,7 +208,7 @@ class BDIAgent(object):
 
     def remove_unreachable_neighbors(self):
         # remove agents that are out-of-range
-        agents_to_remove = set(self.graph.all_neighbors) - set(self.agents_in_comm_range)
+        agents_to_remove = set(self.graph.get_connected_agents()) - set(self.agents_in_comm_range)
         if agents_to_remove:
             self.log.debug(f'Removing {agents_to_remove}')
             for _agent in agents_to_remove:
@@ -301,11 +288,17 @@ class BDIAgent(object):
                     self.dcop.receive_execution_request_message(message)
 
                 # Information sharing
-                case messaging.AgentMsgTypes.SHARED_INFO:
-                    self.receive_shared_info(message, InfoSharingType.STATE_SHARING)
+                case messaging.InfoSharing.EXP_HISTORY_DISCLOSURE:
+                    self.info_share.receive_exp_history_disclosure_message(message)
 
-                case messaging.AgentMsgTypes.SHARED_BURIED_ENTITIES:
-                    self.receive_shared_info(message, InfoSharingType.BURIED_HUMAN_SHARING)
+                case messaging.InfoSharing.EXP_SHARING_WITH_REQUEST:
+                    self.info_share.receive_exp_sharing_with_request_message(message)
+
+                case messaging.InfoSharing.EXP_SHARING:
+                    self.info_share.receive_exp_sharing_message(message)
+
+                case messaging.InfoSharing.NEIGHBOR_UPDATE:
+                    self.info_share.receive_neighbor_update_message(message)
 
                 # LSLA message handling
                 case messaging.LSLAMsgTypes.LSLA_INQUIRY_MESSAGE:

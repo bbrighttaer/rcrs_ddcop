@@ -7,8 +7,6 @@ from strenum import StrEnum
 
 class AgentMsgTypes(StrEnum):
     TEST = auto()
-    SHARED_INFO = auto()
-    SHARED_BURIED_ENTITIES = auto()
     BUSY = auto()
 
 
@@ -22,6 +20,13 @@ class DIGCAMsgTypes(StrEnum):
     PARENT_ASSIGNED = auto()
     PARENT_ALREADY_ASSIGNED = auto()
     PSEUDO_CHILD_ADDED = auto()
+
+
+class InfoSharing(StrEnum):
+    EXP_HISTORY_DISCLOSURE = auto()
+    EXP_SHARING_WITH_REQUEST = auto()
+    EXP_SHARING = auto()
+    NEIGHBOR_UPDATE = auto()
 
 
 class DPOPMsgTypes(StrEnum):
@@ -117,10 +122,6 @@ def create_execution_request_message(data):
     return _create_msg(CoCoAMsgTypes.EXECUTION_REQUEST, data)
 
 
-def create_shared_info_message(data):
-    return _create_msg(AgentMsgTypes.SHARED_INFO, data)
-
-
 def create_lsla_inquiry_message(data):
     return _create_msg(LSLAMsgTypes.LSLA_INQUIRY_MESSAGE, data)
 
@@ -129,13 +130,25 @@ def create_lsla_util_message(data):
     return _create_msg(LSLAMsgTypes.LSLA_UTIL_MESSAGE, data)
 
 
-def create_shared_buried_entities_info_message(data):
-    return _create_msg(AgentMsgTypes.SHARED_BURIED_ENTITIES, data)
-
-
 def create_busy_message(data):
     return _create_msg(AgentMsgTypes.BUSY, data)
 
 
-def create_pseudo_child_added(data):
+def create_pseudo_child_added_message(data):
     return _create_msg(DIGCAMsgTypes.PSEUDO_CHILD_ADDED, data)
+
+
+def create_exp_history_disclosure_message(data):
+    return _create_msg(InfoSharing.EXP_HISTORY_DISCLOSURE, data)
+
+
+def create_exp_sharing_with_request_message(data):
+    return _create_msg(InfoSharing.EXP_SHARING_WITH_REQUEST, data)
+
+
+def create_exp_sharing_message(data):
+    return _create_msg(InfoSharing.EXP_SHARING, data)
+
+
+def create_neighbor_update_message(data):
+    return _create_msg(InfoSharing.NEIGHBOR_UPDATE, data)
