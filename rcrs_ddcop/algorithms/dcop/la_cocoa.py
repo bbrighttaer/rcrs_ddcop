@@ -1,15 +1,13 @@
 import threading
-import time
 
 import numpy as np
 import torch
-from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import StandardScaler
 from xgboost import DMatrix
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
-from rcrs_ddcop.core.nn import NodeGCN, ModelTrainer, XGBTrainer
+from rcrs_ddcop.core.nn import NodeGCN, XGBTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -32,22 +30,9 @@ class LA_CoCoA(DCOP):
         self.neighbor_states = {}
         self.neighbor_values = {}
         self.cost_map = {}
-        self.node_feature_dim = 8
-        # self.look_ahead_model = self._create_nn_model()
         self.bin_horizon_size = 1
-        self.unary_horizon_size = 2
+        self.unary_horizon_size = 1
         self._sent_inquiries_list = []
-
-        # Graph NN case
-        # self._model_trainer = ModelTrainer(
-        #     label=self.label,
-        #     model=self.look_ahead_model,
-        #     exp_buffer=self.agent.exp_buffer,
-        #     log=self.log,
-        #     batch_size=32,
-        #     lr=6e-3,
-        #     transform=self.normalizer,
-        # )
 
         # XGBoot case
         self._model_trainer = XGBTrainer(
@@ -177,11 +162,6 @@ class LA_CoCoA(DCOP):
 
         # self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
 
-        # GNN: copy current weights
-        # model = self._create_nn_model()
-        # model.load_state_dict(self.look_ahead_model.state_dict())
-        # model.eval()
-
         # apply unary constraints
         belief = world_to_state(self.agent.belief)
         for i in range(self.unary_horizon_size):
@@ -211,21 +191,6 @@ class LA_CoCoA(DCOP):
                 x = self._model_trainer.normalizer.inverse_transform(output)
                 x = np.clip(x, a_min=0., a_max=None)
                 belief.x = torch.tensor(x, dtype=torch.float)
-
-            # try:
-            #     # normalize
-            #     belief.x = torch.tensor(self.normalizer.transform(belief.x), dtype=torch.float)
-            #
-            #     # predict
-            #     belief.x = model(belief)
-            #
-            #     # revert normalization
-            #     x = self.normalizer.inverse_transform(belief.x.detach().numpy())
-            #     x = np.clip(x, a_min=0., a_max=None)
-            #     belief.x = torch.tensor(x, dtype=torch.float)
-            # except NotFittedError:
-            #     # don't use model if no training has happened yet
-            #     break
 
         # notify agent about predictions
         if self.unary_horizon_size > 1 and self._model_trainer.model:
@@ -309,7 +274,7 @@ class LA_CoCoA(DCOP):
         self.log.info(f'Received inquiry message from {sender}')
 
         # create world-view from local belief and shared belief for reasoning
-        context = state_to_world(world_to_state(self.agent.belief))
+        # context = state_to_world(world_to_state(self.agent.belief))
 
         # if this agent has already set its value then keep it fixed
         iter_list = [self.value] if self.value and sender in self.graph.children else self.domain
@@ -319,24 +284,26 @@ class LA_CoCoA(DCOP):
         # compile list of values already picked by self and neighbors
         neighbor_vals = list(self.neighbor_values.values())
 
+        eps = 1e-30
+
         # start look-ahead util estimation
         for h in range(self.bin_horizon_size):
-            parsed_belief = state_to_world(belief)
-            context.unindexedـentities.update(parsed_belief.unindexedـentities)
+            # parsed_belief = state_to_world(belief)
+            # context.unindexedـentities.update(parsed_belief.unindexedـentities)
 
             for i, value_i in enumerate(iter_list):
                 for j, value_j in enumerate(sender_domain):
-                    agent_values = {
-                        sender: value_j,
-                        self.agent.agent_id: value_i,
-                    }
+                    # agent_values = {
+                    #     sender: value_j,
+                    #     self.agent.agent_id: value_i,
+                    # }
                     # util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
-                    # if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j == value_i:
-                    #     util_matrix[i, j] = 5.
-                    # else:
-                    #     util_matrix[i, j] = 0.
-                    eps = 1e-20
-                    util_matrix[i, j] = np.log(eps) if value_j == value_i else -np.log(eps)
+                    if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j != value_i:
+                        util_matrix[i, j] = -np.log(eps)
+                    else:
+                        util_matrix[i, j] = np.log(eps)
+
+                    # util_matrix[i, j] = np.log(eps) if value_j == value_i else -np.log(eps)
 
             # belief.x = self.predict_next_state(belief)
 

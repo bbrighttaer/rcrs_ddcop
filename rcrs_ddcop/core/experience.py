@@ -1,11 +1,12 @@
-import datetime
 import random
-from collections import deque
 from dataclasses import dataclass
 from typing import List, Optional
 
+import numpy as np
 from circular_dict import CircularDict
 from torch_geometric.data import Data
+
+from rcrs_ddcop.core.data import process_data
 
 
 @dataclass
@@ -22,22 +23,29 @@ class Experience:
 class ExperienceBuffer:
     """Stores data for training models"""
 
-    def __init__(self, capacity: int = 1000, lbl: str = ''):
+    def __init__(self, log, capacity: int = 1000, lbl: str = ''):
         self.memory = CircularDict(maxlen=capacity)
         self.lbl = lbl
+        self.log = log
+        self.ref_data_sz = 100
+        self.sim_threshold = 0.5
 
-    def add(self, exp: List[List[Data]]) -> None:
+    def add(self, experience: List[Data]) -> list:
         """Adds an experience to the buffer"""
-        exp_id = self.lbl + '_' + str(round(datetime.datetime.now().timestamp()))
-        self.memory[exp_id] = exp
-        # save
-        # if len(self) > 200:
-        #     torch.save(self.memory, f'{self.lbl}.pt')
+        x = process_data([experience])
+        sz = len(self)
+        keys = [f'{self.lbl}_{sz + i}' for i, e in enumerate(x)]
+        if experience and x:
+            self.merge_experiences(x, keys)
+        return keys
+
+    def add_processed_exp(self, exp, key):
+        self.memory[key] = exp
 
     def get_keys(self):
         return list(self.memory.keys())
 
-    def sample(self, batch_size: int) -> List[List[Data]]:
+    def sample(self, batch_size: int) -> List:
         """
         Samples experiences from the buffer.
 
@@ -46,17 +54,54 @@ class ExperienceBuffer:
         :return: list of experiences.
         """
         if batch_size < len(self):
-            return random.sample(self.memory.items(), batch_size)
-        else:
-            return random.sample(self.memory.items(), len(self))
+            return random.sample(list(self.memory.values()), batch_size)
+        elif self.memory:
+            return random.sample(list(self.memory.values()), len(self))
 
     def select_exps_by_key(self, keys):
         exps = []
+        if not keys:
+            return exps
         for k in keys:
-            exps.append(self.memory[k])
+            if k in self.memory:
+                exps.append(self.memory[k])
         return exps
 
     def __len__(self):
         return len(self.memory)
 
+    def merge_experiences(self, experiences: list, exp_keys: list):
+        """
+        Merge experiences into the agent's experience buffer.
 
+        :param experiences: experiences to be merged.
+        :param exp_keys: the keys of the shared experiences.
+        :return:
+        """
+        self.log.debug('Merging experiences')
+
+        initial_buffer_sz = len(self)
+
+        # get reference data
+        ref_data = self.sample(self.ref_data_sz)
+        if ref_data:
+            ref_data = np.array(ref_data)
+
+            # convert exps to matrix
+            experiences = np.array(experiences)
+
+            # calculate cosine similarity with reference data
+            sim = np.dot(experiences, ref_data.T) / (np.linalg.norm(experiences) * np.linalg.norm(ref_data))
+            sim = np.max(sim, axis=1)
+
+            # select indices which are less similar
+            sel_idx = (sim < self.sim_threshold).nonzero()
+            experiences = experiences[sel_idx].tolist()
+            exp_keys = np.array(exp_keys)[sel_idx].tolist()
+
+        # add selected exps to buffer
+        for e_id, exp in zip(exp_keys, experiences):
+            self.add_processed_exp(exp, e_id)
+
+        if len(self) > initial_buffer_sz:
+            self.log.debug(f'Experience merging completed: {initial_buffer_sz} -> {len(self)}')

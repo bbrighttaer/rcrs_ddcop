@@ -1,4 +1,5 @@
 import math
+from collections import defaultdict
 from typing import Iterable
 
 import networkx as nx
@@ -16,6 +17,7 @@ from torch_geometric.data import Data
 import ImbalancedLearningRegression as iblr
 
 from rcrs_ddcop.core.enums import Fieryness
+from rcrs_ddcop.utils.common_funcs import euclidean_distance
 
 
 def _get_unburnt_neighbors(world_model: WorldModel, building: Building) -> list:
@@ -42,27 +44,44 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
     world_graph = nx.Graph()
     edge_index_coo = None
 
-    if not entity_ids:
-        # populate graph
-        state_entities = [EntityID(e) for e in entity_ids] if entity_ids else world_model.unindexedـentities
-        for entity_id in state_entities:
-            entity = world_model.get_entity(entity_id)
-            if isinstance(entity, Area):
-                neighbors = entity.get_neighbours()
-                for n in neighbors:
-                    n_entity = world_model.get_entity(n)
-                    if isinstance(n_entity, Area):
-                        world_graph.add_edge(entity.get_id().get_value(), n.get_value())
+    # populate graph
+    state_entities = [EntityID(e) for e in entity_ids] if entity_ids else world_model.unindexedـentities
+    buildings = []
+    for entity_id in state_entities:
+        entity = world_model.get_entity(entity_id)
+        if isinstance(entity, Area):
+            neighbors = entity.get_neighbours()
+            for n in neighbors:
+                n_entity = world_model.get_entity(n)
+                if isinstance(n_entity, Area):
+                    world_graph.add_edge(entity.get_id().get_value(), n.get_value())
 
-            elif isinstance(entity, Human):
-                pos_entity = world_model.get_entity(entity.position.get_value())
-                if isinstance(pos_entity, Area):
-                    world_graph.add_edge(pos_entity.get_id().get_value(), entity.get_id().get_value())
+            # find buildings
+            if isinstance(entity, Building):
+                buildings.append(entity)
 
-        # construct edge index
-        adjacency_matrix = nx.adjacency_matrix(world_graph)
-        rows, cols = np.nonzero(adjacency_matrix)
-        edge_index_coo = torch.tensor(np.array(list(zip(rows, cols))).reshape(2, -1), dtype=torch.long)
+        elif isinstance(entity, Human):
+            pos_entity = world_model.get_entity(entity.position.get_value())
+            if isinstance(pos_entity, Area):
+                world_graph.add_edge(pos_entity.get_id().get_value(), entity.get_id().get_value())
+
+    # construct edge index
+    adjacency_matrix = nx.adjacency_matrix(world_graph)
+    rows, cols = np.nonzero(adjacency_matrix)
+    edge_index_coo = torch.tensor(np.array(list(zip(rows, cols))).reshape(2, -1), dtype=torch.long)
+
+    # get building neighbors based on distance metric
+    building_to_neighbors = defaultdict(list)
+    for building in buildings:
+        for b2 in buildings:
+            dist = euclidean_distance(building.get_x(), building.get_y(), b2.get_x(), b2.get_y())
+            if b2 != building and dist < 30000:
+                building_to_neighbors[building.get_id()].append(b2)
+
+    # compute fire index for each building
+    b_fire_idx = {
+        b: max([nb.get_temperature() for nb in building_to_neighbors[b]]) for b in building_to_neighbors
+    }
 
     # construct node features
     node_features = []
@@ -74,7 +93,7 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
                 entity.get_temperature(),
                 entity.get_brokenness(),
                 entity.get_building_code(),
-                get_building_fire_index(entity, world_model),
+                b_fire_idx[entity.get_id()] if entity.get_id() in b_fire_idx else entity.get_temperature(),
                 0,
             ])
             # ] + [0.] * 3)
@@ -141,9 +160,8 @@ def dict_to_state(data: dict) -> Data:
     )
 
 
-def process_data(raw_data: list[list[Data]], transform=None) -> list[Data]:
+def process_data(raw_data: list[list[Data]]) -> list:
     data = []
-    transform_data = []
     for record in raw_data:
         state = record[0]
         s_prime = record[1]
@@ -157,24 +175,9 @@ def process_data(raw_data: list[list[Data]], transform=None) -> list[Data]:
 
         # identify change in fieriness
         diff = torch.clip(state.x[:, 0] - s_prime.x[:, 0], 0, 1).view(-1, 1)
-        state.x = torch.concat([state.x[:, :-1], diff], dim=1)
-
-        # gather data for computing normalization statistics
-        transform_data.extend([state.x.numpy(), s_prime.x.numpy()])
-
-        # create data and add it to the set
-        d_instance = Data(
-            x=state.x,
-            y=s_prime.x,
-            edge_index=state.edge_index,
-            nodes_order=state.nodes_order,
-            node_urns=state.node_urns,
-        )
-        data.append(d_instance)
-
-    # compute data normalization stats
-    if transform_data:
-        transform.fit(np.concatenate(transform_data))
+        x = torch.concat([state.x[:, :-1], diff], dim=1)
+        x = torch.concat([x, s_prime.x], dim=1).tolist()
+        data.extend(x)
     return data
 
 
@@ -184,7 +187,9 @@ def get_building_fire_index(building: Building, world_model: WorldModel):
         entity = world_model.get_entity(neighbor)
         if isinstance(entity, Building):
             neighbor_temps.append(entity.get_temperature())
-    return max(neighbor_temps) if neighbor_temps else 0.
+    val = max(neighbor_temps) if neighbor_temps else 0.
+    print(f'building index: {val}')
+    return val
 
 
 def correct_skewed_data(X, Y, columns, target_col):

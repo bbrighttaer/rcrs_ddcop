@@ -16,7 +16,6 @@ from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
 import xgboost as xgb
 from xgboost.callback import TrainingCallback, _Model, EarlyStopping
 
-from rcrs_ddcop.core.data import process_data, correct_skewed_data
 from rcrs_ddcop.core.experience import ExperienceBuffer
 
 
@@ -121,7 +120,6 @@ class ModelTrainer:
         with train(self.model):
             sampled_data = self.experience_buffer.sample(self.batch_size * 2)
             sampled_data = [data[1:] for data in sampled_data]  # exclude IDs
-            dataset = process_data(sampled_data, transform=self.normalizer)
             data_loader = DataLoader(dataset, batch_size=self.batch_size)
 
             losses = []
@@ -193,6 +191,7 @@ class XGBTrainer:
         self._model = None
         self._rounds = rounds
         self.is_training = False
+        self.batch_sz = 700
 
         self.load_model()
 
@@ -202,8 +201,8 @@ class XGBTrainer:
 
     def load_model(self):
         self._model = xgb.Booster()
-        model_file_name = f'{self.label}_model.json'
-        scaler_file_name = f'{self.label}_scaler.bin'
+        model_file_name = f'{self.label}_model_static.json'
+        scaler_file_name = f'{self.label}_scaler_static.bin'
         # if 'FireBrigade' in self.label:
         #     model_file_name = 'FireBrigadeAgent_210552869_model_static.json'
         #     scaler_file_name = 'FireBrigadeAgent_210552869_scaler_static.bin'
@@ -223,7 +222,7 @@ class XGBTrainer:
     def __call__(self, *args, **kwargs):
         """Trains the prediction model"""
         # ensure there is enough data to sample from
-        if len(self.experience_buffer) < 10:
+        if len(self.experience_buffer) < 50:
             return
 
         # with self:
@@ -235,44 +234,24 @@ class XGBTrainer:
         #     ]
         #
         #     # start training block
-        #     batch_sz = 100
-        #     sampled_data = self.exp_buffer.sample(batch_sz)
-        #     dataset = process_data(sampled_data, transform=self.normalizer)
-        #     if not dataset:
-        #         self.log.warning('Training terminated due to empty dataset after processing')
-        #         return
+        #     dataset = self.experience_buffer.sample(self.batch_sz)
+        #     dataset = np.array(dataset)
         #
-        #     # use PyG to expand all data instances
-        #     data = next(iter(DataLoader(dataset, batch_size=len(dataset))))
-        #
-        #     if len(data) < 50:
-        #         self.log.warning(f'Training terminated due to insufficient samples: {len(data)}')
-        #         return
-        #
-        #     self._save_training_data(data.x, data.y, columns, 'original')
+        #     self._save_training_data(dataset, columns, 'original')
         #
         #     # try:
         #     #     X, Y = correct_skewed_data(data.x, data.y, columns, 'fieryness_x')
         #     # except ValueError as e:
         #     #     self.log.warning(f'Training terminated due to: {str(e)}')
         #     #     return
-        #     X, Y = data.x, data.y
-        #
-        #     self._save_training_data(X, Y, columns, 'corrected')
+        #     X, Y = dataset[:, :6], dataset[:, 6:]
         #
         #     # normalize data to zero mean, unit variance
+        #     self.normalizer.fit(np.concatenate([X, Y], axis=0))
         #     X = self.normalizer.transform(X)
         #     Y = self.normalizer.transform(Y)
         #     # wts = np.array([1. if 3 > e > 0 else 0.2 for e in data.y[:, 0]])
         #
-        #     # split data
-        #     # tr_sz = int(len(X) * 0.8)
-        #     # X_train = X[:tr_sz, :]
-        #     # Y_train = Y[:tr_sz, :]
-        #     # train_wts = wts[:tr_sz]
-        #     # X_val = X[tr_sz:, :]
-        #     # Y_val = Y[tr_sz:, :]
-        #     # val_wts = wts[tr_sz:]
         #     X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, shuffle=True)
         #
         #     # put data into xgb matrix
@@ -301,16 +280,15 @@ class XGBTrainer:
         #     if self.best_model_config:
         #         model.load_config(self.best_model_config)
         #         self._model = model
-        #         # model.save_model(f'{self.label}_model.json')
-        #         # joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
+        #         model.save_model(f'{self.label}_model_static.json')
+        #         joblib.dump(self.normalizer, f'{self.label}_scaler_static.bin')
 
         return self.best_score
 
-    def _save_training_data(self, X, Y, columns, suffix):
+    def _save_training_data(self, data, columns, suffix):
         # save data
-        concat_data = np.concatenate([X, Y], axis=1)
         df = pd.DataFrame(
-            concat_data,
+            data,
             columns=columns,
         )
         df.to_csv(f'{self.label}_training_data_{suffix}.csv', index=False)

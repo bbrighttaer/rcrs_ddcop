@@ -60,6 +60,7 @@ class FireBrigadeAgent(Agent):
         self.buildings_for_domain = []
         self.roads = []
         self.building_to_road = defaultdict(list)
+        self.building_to_neighbors = defaultdict(list)
         self.fire_calls_attended = []
         self.la_tuples = None
         self.consistency = 0
@@ -208,7 +209,7 @@ class FireBrigadeAgent(Agent):
             return
 
         # construct tuple
-        exp = None
+        exp_keys = None
         if self.cached_exp:
             s_prime = world_to_state(
                 world_model=self.world_model,
@@ -218,9 +219,7 @@ class FireBrigadeAgent(Agent):
             s_prime.nodes_order = self.cached_exp.nodes_order
             s_prime.node_urns = self.cached_exp.node_urns
 
-            self.bdi_agent.experience_buffer.add([self.cached_exp, s_prime])
-
-            exp = [state_to_dict(self.cached_exp), state_to_dict(s_prime)]
+            exp_keys = self.bdi_agent.experience_buffer.add([self.cached_exp, s_prime])
 
             # record look-ahead results
             if self.la_tuples:
@@ -230,7 +229,7 @@ class FireBrigadeAgent(Agent):
         self.cached_exp = state
 
         # share updates with neighbors
-        self.bdi_agent.share_updates_with_neighbors(exp=exp)
+        self.bdi_agent.share_updates_with_neighbors(exp_keys=exp_keys)
 
         # self.target = None
         self.deliberate(state, time_step)

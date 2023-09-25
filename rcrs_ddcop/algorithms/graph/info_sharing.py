@@ -1,9 +1,7 @@
 from functools import partial
-from typing import List, Dict
 
 from rcrs_ddcop.algorithms.graph import DynaGraph
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
-from rcrs_ddcop.core.data import state_to_dict
 from rcrs_ddcop.core.enums import DynamicGraphCallback
 from rcrs_ddcop.core.experience import ExperienceBuffer
 
@@ -43,51 +41,57 @@ class NeighborInfoSharing:
     def receive_exp_history_disclosure_message(self, message):
         sender = message['payload']['agent_id']
         n_exp_keys = message['payload']['exp_keys']
-        self.log.debug(f'Received exp history disclosure message from {sender}, exp_keys= {n_exp_keys}')
+        self.log.debug(f'Received exp history disclosure message from {sender}')
 
         # find new keys
         req_exp_keys = set(n_exp_keys) - set(self.exp_buffer.get_keys())
-        local_exps_share = self.exp_buffer.select_exps_by_key(set(self.exp_buffer.get_keys()) - set(n_exp_keys))
+        shared_exp_keys = set(self.exp_buffer.get_keys()) - set(n_exp_keys)
+        local_exps_share = self.exp_buffer.select_exps_by_key(shared_exp_keys)
 
         # request exps and share local exps
         if req_exp_keys or local_exps_share:
-            local_exps_share = [[state_to_dict(exp[0]), state_to_dict(exp[1])] for exp in local_exps_share]
             self.comm.send_exp_sharing_with_request_message(
                 agent_id=sender,
                 shared_exps=local_exps_share,
                 requested_exp_keys=list(req_exp_keys),
+                shared_exp_keys=list(shared_exp_keys),
             )
 
     def receive_exp_sharing_with_request_message(self, message):
         sender = message['payload']['agent_id']
         shared_exps = message['payload']['shared_exps']
+        shared_exp_keys = message['payload']['shared_exp_keys']
         requested_exp_keys = message['payload']['requested_exp_keys']
-        self.log.debug(f'Received exp sharing with request message from {sender}, req keys = {requested_exp_keys}')
+        self.log.debug(f'Received exp sharing with request message from {sender}')
 
         # send requested experiences
         local_exps_share = self.exp_buffer.select_exps_by_key(requested_exp_keys)
         if local_exps_share:
-            local_exps_share = [[state_to_dict(exp[0]), state_to_dict(exp[1])] for exp in local_exps_share]
             self.comm.send_exp_sharing_message(
                 agent_id=sender,
                 shared_exps=local_exps_share,
+                shared_exp_keys=requested_exp_keys,
             )
 
         # merge shared experiences
-        self.merge_experiences(shared_exps)
+        if shared_exps and shared_exp_keys:
+            self.exp_buffer.merge_experiences(shared_exps, shared_exp_keys)
 
     def receive_exp_sharing_message(self, message):
         sender = message['payload']['agent_id']
         shared_exps = message['payload']['shared_exps']
+        shared_exp_keys = message['payload']['shared_exp_keys']
         self.log.debug(f'Received exp sharing message from {sender}')
-        self.merge_experiences(shared_exps)
+        self.exp_buffer.merge_experiences(shared_exps, shared_exp_keys)
 
-    def send_neighbor_update_message(self, exp):
+    def send_neighbor_update_message(self, exp_keys):
+        exps = self.exp_buffer.select_exps_by_key(exp_keys)
         for agent in self.graph.get_connected_agents():
             self.comm.send_neighbor_update_message(
                 agent_id=agent,
                 domain=self._agent.domain,
-                exp=exp,
+                exps=exps,
+                shared_exp_keys=exp_keys,
             )
 
     def receive_neighbor_update_message(self, message):
@@ -99,17 +103,7 @@ class NeighborInfoSharing:
         self._agent.add_neighbor_domain(sender, data['domain'])
 
         # if an experience was shared, merge it
-        shared_exp = data.get('exp')
+        shared_exp = data.get('exps')
         if shared_exp:
-            self.merge_experiences([shared_exp])
-
-    def merge_experiences(self, experiences: List[List[Dict]]):
-        """
-        Merge experiences into the agent's experience buffer.
-
-        :param experiences: experiences to be merged.
-        :return:
-        """
-        self.log.debug('Merging experiences')
-
-
+            shared_exp_keys = message['payload']['shared_exp_keys']
+            self.exp_buffer.merge_experiences(shared_exp, shared_exp_keys)

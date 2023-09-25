@@ -35,7 +35,7 @@ class BDIAgent(object):
         self._terminate = False
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
-        self.experience_buffer = ExperienceBuffer(lbl=self.label)
+        self.experience_buffer = ExperienceBuffer(lbl=self.label, log=self.log)
         self._timeout = 3.5
         self.look_ahead_tuples = None
 
@@ -319,16 +319,16 @@ class BDIAgent(object):
         sender = data['agent_id']
         self.log.info(f'Received shared message from {sender}')
 
-        if message_type == InfoSharingType.STATE_SHARING:
-            shared_exp = data.get('exp')
-            self.add_neighbor_domain(sender, data['domain'])
-            self.add_neighbor_previous_value(sender, data['previous_value'])
-
-            if shared_exp:
-                self.experience_buffer.add(
-                    exp=[dict_to_state(shared_exp[0]), dict_to_state(shared_exp[1])],
-                )
-        elif message_type == InfoSharingType.BURIED_HUMAN_SHARING:
+        # if message_type == InfoSharingType.STATE_SHARING:
+        #     shared_exp = data.get('exp')
+        #     self.add_neighbor_domain(sender, data['domain'])
+        #     self.add_neighbor_previous_value(sender, data['previous_value'])
+        #
+        #     if shared_exp:
+        #         self.experience_buffer.add(
+        #             exp=[dict_to_state(shared_exp[0]), dict_to_state(shared_exp[1])],
+        #         )
+        if message_type == InfoSharingType.BURIED_HUMAN_SHARING:
             self.log.info(f'Shared buried data: {data}')
 
     def __call__(self, *args, **kwargs):
