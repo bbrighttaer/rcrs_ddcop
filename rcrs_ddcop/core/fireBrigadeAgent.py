@@ -190,7 +190,7 @@ class FireBrigadeAgent(Agent):
         self.can_rescue = check_rescue_task(targets)
 
         # construct agent's state from world view
-        state = world_to_state(self.world_model)
+        state = world_to_state(self.world_model, entity_ids=[e.get_value() for e in change_set_entity_ids])
         self.bdi_agent.state = state
 
         # update domain
@@ -214,10 +214,7 @@ class FireBrigadeAgent(Agent):
             s_prime = world_to_state(
                 world_model=self.world_model,
                 entity_ids=self.cached_exp.nodes_order,
-                edge_index=self.cached_exp.edge_index,
             )
-            s_prime.nodes_order = self.cached_exp.nodes_order
-            s_prime.node_urns = self.cached_exp.node_urns
 
             exp_keys = self.bdi_agent.experience_buffer.add([self.cached_exp, s_prime])
 
@@ -280,7 +277,7 @@ class FireBrigadeAgent(Agent):
             # check if fire should be put out
             elif isinstance(selected_entity, Building) \
                     and self.get_neighboring_road(selected_entity) == self.location().get_id():
-                if self.target.get_fieryness() >= Fieryness.BURNING:
+                if self.target.get_fieryness() >= Fieryness.BURNING and self.target.get_temperature() > 0:
                     self.Log.info(f'Extinguishing building {selected_entity_id}')
                     self.send_extinguish(
                         time_step,

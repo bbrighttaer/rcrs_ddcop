@@ -171,7 +171,6 @@ class AmbulanceTeamAgent(Agent):
             s_prime = world_to_state(
                 world_model=self.world_model,
                 entity_ids=self._cached_exp.nodes_order,
-                edge_index=self._cached_exp.edge_index,
             )
             s_prime.nodes_order = self._cached_exp.nodes_order
             s_prime.node_urns = self._cached_exp.node_urns

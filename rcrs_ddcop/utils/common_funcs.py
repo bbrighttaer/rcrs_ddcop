@@ -185,7 +185,7 @@ def neighbor_constraint(agent_id: int, context: WorldModel, agent_vals: dict):
 
     # fire brigade - fire brigade relationship
     elif isinstance(agent_entity, FireBrigadeEntity) and isinstance(neighbor_entity, FireBrigadeEntity):
-        score = points if agent_selected_value == neighbor_value else -points
+        score = points if agent_selected_value != neighbor_value else -points
         return score
 
     # ambulance - fire brigade relationship

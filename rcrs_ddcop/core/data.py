@@ -40,35 +40,14 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
     :param edge_index: precomputed edge index. Must be supplied if `entity_ids` is passed.
     :return: parsed world to `Data` object.
     """
-    # construct graph for the state
-    world_graph = nx.Graph()
-    edge_index_coo = None
-
-    # populate graph
     state_entities = [EntityID(e) for e in entity_ids] if entity_ids else world_model.unindexedـentities
     buildings = []
     for entity_id in state_entities:
         entity = world_model.get_entity(entity_id)
-        if isinstance(entity, Area):
-            neighbors = entity.get_neighbours()
-            for n in neighbors:
-                n_entity = world_model.get_entity(n)
-                if isinstance(n_entity, Area):
-                    world_graph.add_edge(entity.get_id().get_value(), n.get_value())
 
-            # find buildings
-            if isinstance(entity, Building):
-                buildings.append(entity)
-
-        elif isinstance(entity, Human):
-            pos_entity = world_model.get_entity(entity.position.get_value())
-            if isinstance(pos_entity, Area):
-                world_graph.add_edge(pos_entity.get_id().get_value(), entity.get_id().get_value())
-
-    # construct edge index
-    adjacency_matrix = nx.adjacency_matrix(world_graph)
-    rows, cols = np.nonzero(adjacency_matrix)
-    edge_index_coo = torch.tensor(np.array(list(zip(rows, cols))).reshape(2, -1), dtype=torch.long)
+        # find buildings
+        if isinstance(entity, Building):
+            buildings.append(entity)
 
     # get building neighbors based on distance metric
     building_to_neighbors = defaultdict(list)
@@ -85,8 +64,12 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
 
     # construct node features
     node_features = []
-    for node in entity_ids if entity_ids else world_graph.nodes:
-        entity = world_model.get_entity(EntityID(node))
+    nodes_order = []
+    node_urns = []
+    for e_id in state_entities:
+        entity = world_model.get_entity(e_id)
+        nodes_order.append(e_id.get_value())
+        node_urns.append(entity.get_urn().value)
         if isinstance(entity, Building):
             node_features.append([
                 entity.get_fieryness(),
@@ -94,7 +77,6 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
                 entity.get_brokenness(),
                 entity.get_building_code(),
                 b_fire_idx[entity.get_id()] if entity.get_id() in b_fire_idx else entity.get_temperature(),
-                0,
             ])
             # ] + [0.] * 3)
         # elif isinstance(entity, Human):
@@ -104,14 +86,13 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
         #         entity.get_hp(),
         #     ])
         else:
-            node_features.append([0.] * 6)
+            node_features.append([0.] * 5)
 
     node_feat_arr = torch.tensor(node_features, dtype=torch.float)
     data = Data(
         x=node_feat_arr,
-        edge_index=edge_index if edge_index is not None else edge_index_coo,
-        nodes_order=list(world_graph.nodes.keys()),
-        node_urns=[world_model.get_entity(EntityID(n)).get_urn().value for n in world_graph.nodes]
+        nodes_order=nodes_order,
+        node_urns=node_urns,
     )
 
     return data
@@ -144,7 +125,6 @@ def state_to_dict(data: Data) -> dict:
     """Converts a PyG data object to python dictionary"""
     return {
         'x': data.x.tolist(),
-        'edge_index': data.edge_index.tolist(),
         'nodes_order': data.nodes_order,
         'node_urns': data.node_urns,
     }
@@ -154,31 +134,9 @@ def dict_to_state(data: dict) -> Data:
     """Reverses a PyG data object to dictionary conversion"""
     return Data(
         x=torch.tensor(data['x'], dtype=torch.float),
-        edge_index=torch.tensor(data['edge_index'], dtype=torch.long),
         nodes_order=data['nodes_order'],
         node_urns=data['node_urns'],
     )
-
-
-def process_data(raw_data: list[list[Data]]) -> list:
-    data = []
-    for record in raw_data:
-        state = record[0]
-        s_prime = record[1]
-
-        # remove uninformative rows
-        idx = state.x[:, 0] != s_prime.x[:, 0]
-        state.x = state.x[idx]
-        s_prime.x = s_prime.x[idx]
-        if len(state.x) == 0 or len(s_prime.x) == 0:
-            continue
-
-        # identify change in fieriness
-        diff = torch.clip(state.x[:, 0] - s_prime.x[:, 0], 0, 1).view(-1, 1)
-        x = torch.concat([state.x[:, :-1], diff], dim=1)
-        x = torch.concat([x, s_prime.x], dim=1).tolist()
-        data.extend(x)
-    return data
 
 
 def get_building_fire_index(building: Building, world_model: WorldModel):

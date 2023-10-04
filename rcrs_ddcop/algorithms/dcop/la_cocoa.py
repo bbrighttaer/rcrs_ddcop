@@ -7,7 +7,7 @@ from xgboost import DMatrix
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
-from rcrs_ddcop.core.nn import NodeGCN, XGBTrainer
+from rcrs_ddcop.core.nn import XGBTrainer, ModelTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -31,31 +31,30 @@ class LA_CoCoA(DCOP):
         self.neighbor_values = {}
         self.cost_map = {}
         self.bin_horizon_size = 1
-        self.unary_horizon_size = 1
+        self.unary_horizon_size = 3
         self._sent_inquiries_list = []
 
-        # XGBoot case
-        self._model_trainer = XGBTrainer(
+        self._model_trainer = ModelTrainer(
             label=self.label,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
+            batch_size=500,
             transform=StandardScaler(),
-            rounds=100,
-            model_params={
-                'objective': 'reg:squarederror',
-                'max_depth': 10,
-                'learning_rate': 1e-3,
-                # 'reg_lambda': 1e-5,
-            }
         )
+
+        # # XGBoot case
+        # self._model_trainer = XGBTrainer(
+        #     label=self.label,
+        #     experience_buffer=self.agent.experience_buffer,
+        #     log=self.log,
+        #     transform=StandardScaler(),
+        #     rounds=100,
+        # )
         self._time_step = 0
         self._training_cycle = 5
 
     def record_agent_metric(self, name, t, value):
         self._model_trainer.write_to_tf_board(name, t, value)
-
-    def _create_nn_model(self):
-        return NodeGCN(dim=self.node_feature_dim)
 
     def on_time_step_changed(self):
         self.cost = None
@@ -164,6 +163,7 @@ class LA_CoCoA(DCOP):
 
         # apply unary constraints
         belief = world_to_state(self.agent.belief)
+        model = self._model_trainer.model
         for i in range(self.unary_horizon_size):
             world = state_to_world(belief)
             for val in total_cost_dict:
@@ -176,24 +176,24 @@ class LA_CoCoA(DCOP):
             # self.log.debug(f'Cost dict (unary-{i+1}): {total_cost_dict}')
 
             # predict next state and update belief for utility estimation
-            if 1 < self.unary_horizon_size > i + 1 and self._model_trainer.model:
+            if 1 < self.unary_horizon_size > i + 1 and self._model_trainer.has_trained:
                 # normalize
-                x = belief.x.numpy()
+                data = belief.x.numpy()
                 # x = np.concatenate([x[:, :-1], np.ones((x.shape[0], 1))], axis=1)
-                # x = self._model_trainer.normalizer.transform(x)
-                x_matrix = DMatrix(data=x)
+                x = self._model_trainer.normalizer.transform(data)
+                x_tensor = torch.tensor(x).float()
 
                 # predict
-                output = self._model_trainer.model.predict(x_matrix)
+                output = model(x_tensor).detach().numpy()
 
                 # revert normalization
-                output = np.concatenate([output, np.ones((x.shape[0], 1))], axis=1)
                 x = self._model_trainer.normalizer.inverse_transform(output)
                 x = np.clip(x, a_min=0., a_max=None)
+                x[:, 2:4] = data[:, 2:4]  # restore building code and brokenness values
                 belief.x = torch.tensor(x, dtype=torch.float)
 
         # notify agent about predictions
-        if self.unary_horizon_size > 1 and self._model_trainer.model:
+        if self.unary_horizon_size > 1 and self._model_trainer.has_trained:
             self.agent.look_ahead_completed_cb(state_to_world(belief))
 
         # self.log.info(f'Total cost dict: {total_cost_dict}')
@@ -274,7 +274,7 @@ class LA_CoCoA(DCOP):
         self.log.info(f'Received inquiry message from {sender}')
 
         # create world-view from local belief and shared belief for reasoning
-        # context = state_to_world(world_to_state(self.agent.belief))
+        context = self.agent.belief  # state_to_world(world_to_state(self.agent.belief))
 
         # if this agent has already set its value then keep it fixed
         iter_list = [self.value] if self.value and sender in self.graph.children else self.domain
@@ -293,15 +293,15 @@ class LA_CoCoA(DCOP):
 
             for i, value_i in enumerate(iter_list):
                 for j, value_j in enumerate(sender_domain):
-                    # agent_values = {
-                    #     sender: value_j,
-                    #     self.agent.agent_id: value_i,
-                    # }
-                    # util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
-                    if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j != value_i:
-                        util_matrix[i, j] = -np.log(eps)
-                    else:
-                        util_matrix[i, j] = np.log(eps)
+                    agent_values = {
+                        sender: value_j,
+                        self.agent.agent_id: value_i,
+                    }
+                    util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
+                    # if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j != value_i:
+                    #     util_matrix[i, j] = -np.log(eps)
+                    # else:
+                    #     util_matrix[i, j] = np.log(eps)
 
                     # util_matrix[i, j] = np.log(eps) if value_j == value_i else -np.log(eps)
 

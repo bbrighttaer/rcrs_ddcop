@@ -3,10 +3,9 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
+import torch
 from circular_dict import CircularDict
 from torch_geometric.data import Data
-
-from rcrs_ddcop.core.data import process_data
 
 
 @dataclass
@@ -18,6 +17,24 @@ class Experience:
 
     def to_dict(self):
         return self.__dict__
+
+
+def process_data(raw_data: list[Data]) -> list:
+    state = raw_data[0]
+    s_prime = raw_data[1]
+
+    # remove uninformative rows
+    # idx = state.x[:, 0] != s_prime.x[:, 0]
+    # state.x = state.x[idx]
+    # s_prime.x = s_prime.x[idx]
+    # if len(state.x) == 0 or len(s_prime.x) == 0:
+    #     return []
+
+    # identify change in fieriness
+    # diff = torch.clip(state.x[:, 0] - s_prime.x[:, 0], 0, 1).view(-1, 1)
+    # x = torch.concat([state.x[:, :-1], diff], dim=1)
+    x = torch.concat([state.x, s_prime.x], dim=1).tolist()
+    return x
 
 
 class ExperienceBuffer:
@@ -32,7 +49,7 @@ class ExperienceBuffer:
 
     def add(self, experience: List[Data]) -> list:
         """Adds an experience to the buffer"""
-        x = process_data([experience])
+        x = process_data(experience)
         sz = len(self)
         keys = [f'{self.lbl}_{sz + i}' for i, e in enumerate(x)]
         if experience and x:
