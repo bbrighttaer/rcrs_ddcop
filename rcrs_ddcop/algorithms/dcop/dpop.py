@@ -73,7 +73,7 @@ class DPOP(DCOP):
             # send value msgs to children
             self.log.info(f'children: {self.graph.children}')
             for child in self.graph.children:
-                self.comm.send_value_message(
+                self.comm.send_dpop_value_message(
                     agent_id=child,
                     value=self.value,
                 )
@@ -157,7 +157,7 @@ class DPOP(DCOP):
 
             # send value msgs to children
             for child in self.graph.children:
-                self.comm.send_value_message(
+                self.comm.send_dpop_value_message(
                     agent_id=child,
                     value=self.value,
                 )

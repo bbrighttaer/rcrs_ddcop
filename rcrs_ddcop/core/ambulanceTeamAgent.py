@@ -108,7 +108,7 @@ class AmbulanceTeamAgent(Agent):
         unburnt = []
         for n in building.get_neighbours():
             entity = self.world_model.get_entity(n)
-            if entity and entity.get_urn() == Building.urn and entity.get_fieryness() < Fieryness.BURNT_OUT:
+            if entity and entity.get_urn() == Building.urn and entity.get_fieryness() < Fieryness.COMPLETELY_BURNT:
                 unburnt.append(entity)
         return unburnt
 

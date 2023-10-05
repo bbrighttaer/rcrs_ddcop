@@ -26,7 +26,7 @@ def _get_unburnt_neighbors(world_model: WorldModel, building: Building) -> list:
     for n in building.get_neighbours():
         entity = world_model.get_entity(n)
         if isinstance(entity, Building):
-            if entity.get_urn() == Building.urn and entity.get_fieryness() < Fieryness.BURNT_OUT:
+            if entity.get_urn() == Building.urn and entity.get_fieryness() < Fieryness.COMPLETELY_BURNT:
                 unburnt.append(entity)
     return unburnt
 

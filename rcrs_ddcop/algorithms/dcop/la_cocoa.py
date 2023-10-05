@@ -3,11 +3,10 @@ import threading
 import numpy as np
 import torch
 from sklearn.preprocessing import StandardScaler
-from xgboost import DMatrix
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
-from rcrs_ddcop.core.nn import XGBTrainer, ModelTrainer
+from rcrs_ddcop.core.nn import ModelTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -31,7 +30,7 @@ class LA_CoCoA(DCOP):
         self.neighbor_values = {}
         self.cost_map = {}
         self.bin_horizon_size = 1
-        self.unary_horizon_size = 3
+        self.unary_horizon_size = 1
         self._sent_inquiries_list = []
 
         self._model_trainer = ModelTrainer(
@@ -42,14 +41,6 @@ class LA_CoCoA(DCOP):
             transform=StandardScaler(),
         )
 
-        # # XGBoot case
-        # self._model_trainer = XGBTrainer(
-        #     label=self.label,
-        #     experience_buffer=self.agent.experience_buffer,
-        #     log=self.log,
-        #     transform=StandardScaler(),
-        #     rounds=100,
-        # )
         self._time_step = 0
         self._training_cycle = 5
 
@@ -70,9 +61,9 @@ class LA_CoCoA(DCOP):
 
     def value_selection(self, val):
         # check for model training time step
-        if not self._model_trainer.is_training:  # avoid multiple training calls
-            if self._time_step % self._training_cycle == 0:
-                threading.Thread(target=self._model_trainer).start()
+        # if not self._model_trainer.is_training:  # avoid multiple training calls
+        #     if self._time_step % self._training_cycle == 0:
+        #         threading.Thread(target=self._model_trainer).start()
 
         # select value
         super(LA_CoCoA, self).value_selection(val)
@@ -127,7 +118,6 @@ class LA_CoCoA(DCOP):
             self._send_inquiry_message(agent, {
                 'agent_id': self.agent.agent_id,
                 'domain': self.domain,
-                'belief': state_to_dict(self.agent.state),
             })
             self._sent_inquiries_list.append(agent)
 
@@ -141,7 +131,7 @@ class LA_CoCoA(DCOP):
 
         total_cost_dict = {}
 
-        # aggregate cost for each value in domain
+        # aggregate coordination constraints cost for each value in domain
         for sender in self.cost_map:
             for val_self, val_sender, cost in self.cost_map[sender]:
                 if val_self in total_cost_dict:
@@ -159,44 +149,23 @@ class LA_CoCoA(DCOP):
         if not total_cost_dict:
             total_cost_dict = {value: {'cost': 0., 'params': {}} for value in self.domain}
 
-        # self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
+        self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
 
         # apply unary constraints
         belief = world_to_state(self.agent.belief)
-        model = self._model_trainer.model
-        for i in range(self.unary_horizon_size):
-            world = state_to_world(belief)
-            for val in total_cost_dict:
-                try:
-                    util = self.agent.unary_constraint(world, val)
-                    total_cost_dict[val]['cost'] += util
-                except AttributeError as e:
-                    pass
-
-            # self.log.debug(f'Cost dict (unary-{i+1}): {total_cost_dict}')
-
-            # predict next state and update belief for utility estimation
-            if 1 < self.unary_horizon_size > i + 1 and self._model_trainer.has_trained:
-                # normalize
-                data = belief.x.numpy()
-                # x = np.concatenate([x[:, :-1], np.ones((x.shape[0], 1))], axis=1)
-                x = self._model_trainer.normalizer.transform(data)
-                x_tensor = torch.tensor(x).float()
-
-                # predict
-                output = model(x_tensor).detach().numpy()
-
-                # revert normalization
-                x = self._model_trainer.normalizer.inverse_transform(output)
-                x = np.clip(x, a_min=0., a_max=None)
-                x[:, 2:4] = data[:, 2:4]  # restore building code and brokenness values
-                belief.x = torch.tensor(x, dtype=torch.float)
+        world = state_to_world(belief)
+        for val in total_cost_dict:
+            try:
+                util = self.agent.unary_constraint(world, val)
+                total_cost_dict[val]['cost'] += util
+            except AttributeError as e:
+                pass
 
         # notify agent about predictions
         if self.unary_horizon_size > 1 and self._model_trainer.has_trained:
             self.agent.look_ahead_completed_cb(state_to_world(belief))
 
-        # self.log.info(f'Total cost dict: {total_cost_dict}')
+        self.log.info(f'Total cost dict: {total_cost_dict}')
         if self.agent.optimization_op == 'max':
             op = np.max
         else:
@@ -215,12 +184,16 @@ class LA_CoCoA(DCOP):
         self.state = self.DONE
         self.report_state_change_to_dashboard()
 
-        # update children
+        # send value and update msgs
+        for neighbor in self.graph.all_neighbors:
+            self.send_value_state_message(neighbor, {
+                'agent_id': self.agent.agent_id,
+                'value': self.value,
+            })
         for child in self.graph.neighbors:
             self.send_update_state_message(child, {
                 'agent_id': self.agent.agent_id,
                 'state': self.state,
-                'value': self.value,
             })
 
         self.cost_map.clear()
@@ -240,6 +213,9 @@ class LA_CoCoA(DCOP):
 
     def send_update_state_message(self, recipient, data):
         self.comm.send_update_state_message(recipient, data)
+
+    def send_value_state_message(self, recipient, data):
+        self.comm.send_cocoa_value_message(recipient, data)
 
     def send_execution_request_message(self, recipient, data):
         self.comm.send_execution_request_message(recipient, data)
@@ -270,7 +246,6 @@ class LA_CoCoA(DCOP):
         payload = payload['payload']
         sender = payload['agent_id']
         sender_domain = payload['domain']
-        belief = dict_to_state(payload['belief'])
         self.log.info(f'Received inquiry message from {sender}')
 
         # create world-view from local belief and shared belief for reasoning
@@ -284,28 +259,13 @@ class LA_CoCoA(DCOP):
         # compile list of values already picked by self and neighbors
         neighbor_vals = list(self.neighbor_values.values())
 
-        eps = 1e-30
-
-        # start look-ahead util estimation
-        for h in range(self.bin_horizon_size):
-            # parsed_belief = state_to_world(belief)
-            # context.unindexedـentities.update(parsed_belief.unindexedـentities)
-
-            for i, value_i in enumerate(iter_list):
-                for j, value_j in enumerate(sender_domain):
-                    agent_values = {
-                        sender: value_j,
-                        self.agent.agent_id: value_i,
-                    }
-                    util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
-                    # if value_j not in neighbor_vals and value_i not in neighbor_vals and value_j != value_i:
-                    #     util_matrix[i, j] = -np.log(eps)
-                    # else:
-                    #     util_matrix[i, j] = np.log(eps)
-
-                    # util_matrix[i, j] = np.log(eps) if value_j == value_i else -np.log(eps)
-
-            # belief.x = self.predict_next_state(belief)
+        for i, value_i in enumerate(iter_list):
+            for j, value_j in enumerate(sender_domain):
+                agent_values = {
+                    sender: value_j,
+                    self.agent.agent_id: value_i,
+                }
+                util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
 
         utils = np.max(util_matrix, axis=0)
         idx = np.argmax(util_matrix, axis=0)
@@ -320,11 +280,16 @@ class LA_CoCoA(DCOP):
         sender = data['agent_id']
         if sender in self.graph.neighbors:
             self.neighbor_states[str(sender)] = data['state']
-            self.neighbor_values[str(sender)] = data['value']
 
         if data['state'] == self.DONE and self.value is None:
             self._can_start = True
             self.execute_dcop()
+
+    def receive_cocoa_value_message(self, payload):
+        self.log.info(f'Received value message: {payload}')
+        data = payload['payload']
+        sender = data['agent_id']
+        self.neighbor_values[str(sender)] = data['value']
 
     def receive_execution_request_message(self, payload):
         self.log.info(f'Received execution request: {payload}, state = {self.state}')

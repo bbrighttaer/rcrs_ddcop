@@ -63,7 +63,7 @@ def get_building_score(building: Building) -> float:
     # building_code = building.get_building_code()
     building_code_score = 0.  # - np.log(building_code + 1e-5)
     temperature = building.get_temperature()
-    building_score = temperature if building.get_fieryness() >= Fieryness.BURNING else 0.
+    building_score = temperature if building.get_fieryness() >= Fieryness.BURNING_MORE else 0.
     return np.log(max(1, building_score)) + building_code_score
 
 
@@ -196,7 +196,7 @@ def neighbor_constraint(agent_id: int, context: WorldModel, agent_vals: dict):
 
 
 def inspect_buildings_for_domain(entities: Iterable[Entity]):
-    return list(filter(lambda x: x.get_fieryness() < Fieryness.BURNT_OUT, entities))
+    return list(filter(lambda x: x.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE, entities))
 
 
 def create_update_look_ahead_tuples(

@@ -31,7 +31,7 @@ class InfoSharing(StrEnum):
 
 class DPOPMsgTypes(StrEnum):
     REQUEST_UTIL_MESSAGE = auto()
-    VALUE_MESSAGE = auto()
+    DPOP_VALUE_MESSAGE = auto()
     UTIL_MESSAGE = auto()
 
 
@@ -40,6 +40,7 @@ class CoCoAMsgTypes(StrEnum):
     INQUIRY_MESSAGE = auto()
     COST_MESSAGE = auto()
     EXECUTION_REQUEST = auto()
+    CoCoA_VALUE_MESSAGE = auto()
 
 
 class LSLAMsgTypes(StrEnum):
@@ -98,8 +99,8 @@ def create_request_util_message(data):
     return _create_msg(DPOPMsgTypes.REQUEST_UTIL_MESSAGE, data)
 
 
-def create_value_message(data):
-    return _create_msg(DPOPMsgTypes.VALUE_MESSAGE, data)
+def create_dpop_value_message(data):
+    return _create_msg(DPOPMsgTypes.DPOP_VALUE_MESSAGE, data)
 
 
 def create_util_message(data):
@@ -108,6 +109,10 @@ def create_util_message(data):
 
 def create_update_state_message(data):
     return _create_msg(CoCoAMsgTypes.UPDATE_STATE_MESSAGE, data)
+
+
+def create_cocoa_value_message(data):
+    return _create_msg(CoCoAMsgTypes.CoCoA_VALUE_MESSAGE, data)
 
 
 def create_inquiry_message(data):

@@ -1,4 +1,5 @@
 import os.path
+import random
 import threading
 import threading
 import time
@@ -8,6 +9,7 @@ from typing import List
 
 import numpy as np
 import pandas as pd
+from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from sklearn.metrics.pairwise import cosine_similarity
 from rcrs_core.agents.agent import Agent
 from rcrs_core.commands.Command import Command
@@ -32,6 +34,14 @@ from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_agen
 from rcrs_ddcop.utils.logger import Logger
 
 WATER_OUT = 500
+SEARCH = -1
+TRAVEL_DISTANCE = 30000
+MAX_TEMPERATURE = 1000
+MAX_PENALTY = 10
+MAX_AGENT_DENSITY = 2
+EPSILON = eps = 1e-20
+VALUE_CHANGE_COST = 5
+CRITICAL_TEMPERATURE_THRESHOLD = 120
 
 
 def check_rescue_task(targets: List[Entity]) -> bool:
@@ -56,7 +66,7 @@ class FireBrigadeAgent(Agent):
         self.target_initial_state = None
         self.can_rescue = False
         self.cached_exp = None
-        self.value_selection_freq = defaultdict(int)
+        self.visitation_freq = defaultdict(int)
         self.buildings_for_domain = []
         self.roads = []
         self.building_to_road = defaultdict(list)
@@ -75,14 +85,14 @@ class FireBrigadeAgent(Agent):
 
         # get buildings and refuges in the environment
         for entity in self.world_model.get_entities():
-            if isinstance(entity, Refuge):
+            if entity.get_urn() == Refuge.urn:
                 self.refuges.add(entity)
 
-            elif isinstance(entity, Building):
+            elif entity.get_urn() == Building.urn:
                 self.unexplored_buildings[entity.entity_id] = entity
                 self.buildings_for_domain.append(entity)
 
-            elif isinstance(entity, Road):
+            elif entity.get_urn() == Road.urn:
                 self.roads.append(entity)
 
         # compute distance from each road to building
@@ -146,6 +156,11 @@ class FireBrigadeAgent(Agent):
             path = self.search.breadth_first_search(self.location().get_id(), [refuge_id])
             self.send_move(self.current_time_step, path)
 
+    def update_visitation_frequency(self, entities: List[Entity]):
+        for entity in entities:
+            if entity.get_urn() == Building.urn:
+                self.visitation_freq[entity.get_id()] += 1
+
     def move_to_target(self, time_step: int):
         if isinstance(self.target, Human):
             goal = self.target.position.get_value()
@@ -162,6 +177,14 @@ class FireBrigadeAgent(Agent):
         else:
             self.Log.warning(f'Failed to plan path to {entity_type} {goal.get_value()}')
 
+    def inspect_buildings_for_domain(self, entities: List[Entity]):
+        return list(
+            filter(
+                lambda x: x.get_urn() == Building.urn and x.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE,
+                entities,
+            )
+        )
+
     def think(self, time_step, change_set, heard):
         start = time.perf_counter()
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
@@ -173,8 +196,10 @@ class FireBrigadeAgent(Agent):
         change_set_entities = self.get_change_set_entities(change_set_entity_ids)
         self.Log.debug(f'Seen {[c.get_value() for c in change_set_entity_ids]}')
 
+        self.update_visitation_frequency(change_set_entities)
+
         # update unexplored buildings
-        self.update_unexplored_buildings(change_set_entities)
+        # self.update_unexplored_buildings(change_set_entities)
 
         # get agents in communication range
         self.current_time_step = time_step
@@ -195,20 +220,18 @@ class FireBrigadeAgent(Agent):
 
         # update domain
         # targets = self.get_targets(change_set_entities)
-        domain = [c.get_id().get_value() for c in chain(
-            # targets,
-            inspect_buildings_for_domain(self.buildings_for_domain),
-            # self.roads,
-        ) if c.get_id() not in self.fire_calls_attended]
-        if not domain:
-            domain = [c.get_id().get_value() for c in self.roads]
+        if self.target:
+            domain = [self.target.get_id().get_value()]
+        else:
+            domain = [c.get_id().get_value() for c in self.inspect_buildings_for_domain(change_set_entities)]
+            domain.append(SEARCH)
         self.bdi_agent.domain = domain
 
         if not domain:
             self.Log.warning('Domain set is empty')
             return
 
-        # construct tuple
+        # construct experience tuple
         exp_keys = None
         if self.cached_exp:
             s_prime = world_to_state(
@@ -228,37 +251,53 @@ class FireBrigadeAgent(Agent):
         # share updates with neighbors
         self.bdi_agent.share_updates_with_neighbors(exp_keys=exp_keys)
 
-        # self.target = None
-        self.deliberate(state, time_step)
-        time_taken = time.perf_counter() - start
-        self.bdi_agent.record_deliberation_time(time_step, time_taken)
-        self.Log.debug(f'Deliberation time = {time_taken}')
+        # check if water tank should be refilled
+        if self.me().get_water() < WATER_OUT:
+            self.refill_water_tank()
+            return
+
+        # continue execution if a task is in progress
+        if self.target:
+            self.bdi_agent.send_busy_to_neighbors()
+            self.extinguish_target()
+
+        # trigger deliberation if task fails/is cancelled
+        if not self.target:
+            self.deliberate(state, time_step)
+            time_taken = time.perf_counter() - start
+            self.bdi_agent.record_deliberation_time(time_step, time_taken)
+            self.Log.debug(f'Deliberation time = {time_taken}')
 
     def deliberate(self, state, time_step):
         # execute thinking process
         agent_value, score = self.bdi_agent.deliberate(time_step)
-        selected_entity = self.world_model.get_entity(EntityID(agent_value))
+        if agent_value == SEARCH:
+            selected_entity = self.select_search_target()
+        else:
+            selected_entity = self.world_model.get_entity(EntityID(agent_value))
         selected_entity_id = selected_entity.entity_id
 
         # monitor decision
-        if isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING:
+        if isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING_MORE:
             self.target_initial_state = 1
             self.bdi_agent.record_agent_decision(time_step, self.target_initial_state)
         else:
             self.target_initial_state = 0
             self.bdi_agent.record_agent_decision(time_step, self.target_initial_state)
 
-        # update selected value's tally
-        self.value_selection_freq[agent_value] += 1
-
         lbl = selected_entity.urn.name
         self.Log.info(f'Time step {time_step}: selected {lbl} {selected_entity.entity_id.get_value()}')
 
+        # search
+        if agent_value == SEARCH:
+            self.send_search(selected_entity_id)
+            self.target = None
+
         # rescue task
-        if isinstance(selected_entity, Human) or isinstance(selected_entity, Building):
+        elif isinstance(selected_entity, Human) or isinstance(selected_entity, Building):
             if self.target and self.target.get_id().get_value() == selected_entity.get_id().get_value():
                 self.consistency += 1
-            elif isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING:
+            elif isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING_MORE:
                 self.consistency = 1
             else:
                 self.consistency = 0
@@ -269,48 +308,39 @@ class FireBrigadeAgent(Agent):
                 self.Log.info(f'Rescuing target {selected_entity_id}')
                 self.send_rescue(time_step, self.target.get_id())
 
-            # check if water tank should be refilled
-            elif isinstance(selected_entity, Building) and self.me().get_water() < WATER_OUT:
-                self.refill_water_tank()
-                # self.target = None
-
-            # check if fire should be put out
-            elif isinstance(selected_entity, Building) \
-                    and self.get_neighboring_road(selected_entity) == self.location().get_id():
-                if self.target.get_fieryness() >= Fieryness.BURNING and self.target.get_temperature() > 0:
-                    self.Log.info(f'Extinguishing building {selected_entity_id}')
-                    self.send_extinguish(
-                        time_step,
-                        selected_entity_id,
-                        selected_entity.get_x(),
-                        selected_entity.get_y(),
-                    )
-                    self.bdi_agent.record_consistent_decision(time_step, self.consistency)
-                    self.Log.debug(f'Consistency: {self.consistency}')
-                    self.consistency = 0
-                # else:
-                #     self.target = None
-
             else:
-                self.move_to_target(time_step)
+                self.extinguish_target()
 
-        # search task
-        elif isinstance(selected_entity, Area):
-            # send search
-            self.send_search(time_step, selected_entity_id)
+    def extinguish_target(self):
+        if isinstance(self.target, Building)\
+                    and self.get_neighboring_road(self.target) == self.location().get_id():
+            if Fieryness.UNBURNT < self.target.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE \
+                    and self.target.get_temperature() > 0:
+                self.Log.info(f'Extinguishing building {self.target.get_id()}')
+                self.send_extinguish(
+                    self.current_time_step,
+                    self.target.get_id(),
+                    self.target.get_x(),
+                    self.target.get_y(),
+                )
+                self.bdi_agent.record_consistent_decision(self.current_time_step, self.consistency)
+                self.Log.debug(f'Consistency: {self.consistency}')
+                self.consistency = 0
+            else:
+                self.target = None
+        else:
+            self.move_to_target(self.current_time_step)
+            self.target = None
 
-    def send_search(self, time_step, building_id=None):
-        path = self.search.breadth_first_search(
-            self.location().get_id(),
-            [building_id] if building_id else self.unexplored_buildings,
-        )
+    def send_search(self, selected_entity_id):
+        path = self.search.breadth_first_search(start=self.location().get_id(), goals=[selected_entity_id])
         if path:
             self.Log.info('Searching buildings')
-            self.send_move(time_step, path)
+            self.send_move(self.current_time_step, path)
         else:
             self.Log.info('Moving randomly')
             path = self.random_walk()
-            self.send_move(time_step, path)
+            self.send_move(self.current_time_step, path)
 
     def update_unexplored_buildings(self, change_set_entities):
         for entity in change_set_entities:
@@ -320,49 +350,94 @@ class FireBrigadeAgent(Agent):
     def get_neighboring_road(self, entity: Building) -> EntityID:
         return self.building_to_road[entity.get_id()][0][0]
 
-    def unary_constraint(self, context: WorldModel, selected_value):
-        eps = 1e-20
-        score = 0.
+    def get_density(self, entity: Entity) -> float:
+        if entity.get_urn() == Building.urn:
+            # get number of agents close to this building
+            n_road = self.get_neighboring_road(entity)
 
+            # find agents that are assigned to this building
+            agts = []
+            for entity in self.world_model.get_entities():
+                if entity.get_urn() == FireBrigadeEntity.urn and entity.position.get_value() == n_road:
+                    agts.append(entity)
+
+            return max(MAX_AGENT_DENSITY, len(agts)) / MAX_AGENT_DENSITY
+
+        return 0.
+
+    def unary_constraint(self, context: WorldModel, selected_value) -> float:
+        """
+        Calculate cost of unary constraints.
+        :param context: world
+        :param selected_value: value for evaluation
+        :return: cost
+        """
+        if selected_value in [951]:
+            print()
+
+        if selected_value == SEARCH:
+            return 0.
+
+        cost = 0.
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
 
-        # distance
-        # score = distance(
-        #     x1=self.world_model.get_entity(entity.entity_id).get_x(),
-        #     y1=self.world_model.get_entity(entity.entity_id).get_y(),
-        #     x2=self.me().get_x(),
-        #     y2=self.me().get_y()
-        # ) / tau
-        # score = -np.log(score + eps)
+        if entity.get_urn() == Building.urn:
+            # distance
+            cost += distance(
+                x1=self.world_model.get_entity(entity.entity_id).get_x(),
+                y1=self.world_model.get_entity(entity.entity_id).get_y(),
+                x2=self.me().get_x(),
+                y2=self.me().get_y()
+            ) / TRAVEL_DISTANCE
 
-        # # exploration term
-        # x = np.log(self.current_time_step) / max(1, self.value_selection_freq[selected_value])
-        # score += np.sqrt(2 * len(self.bdi_agent.domain) * x)
+            # density
+            density = self.get_density(entity)
+            if density > 1:
+                cost += MAX_PENALTY
+            else:
+                cost -= MAX_PENALTY * (entity.get_temperature() / MAX_TEMPERATURE)
 
-        # Building score
-        if isinstance(entity, Area):
-            if self.can_rescue or entity.get_id().get_value() == self.location().get_id().get_value():
-                return np.log(eps)
-            return score + get_building_score(entity) if isinstance(entity, Building) else get_road_score(
-                world_model=context,
-                road=self.world_model.get_entity(entity.entity_id),
-            )
+        return cost
 
-        # human score
-        if isinstance(entity, Human) and entity.get_hp() > 0 and entity.get_buriedness() >= 60:
-            score += get_human_score(self.world_model, context, entity)
-        else:
-            return np.log(eps)
-
-        return score
-
-    def neighbor_constraint(self, context: WorldModel, agent_vals: dict):
+    def neighbor_constraint(self, context: WorldModel, agent_vals: dict) -> float:
         """
         The desire is to optimize the objective functions in its neighborhood.
-        :return:
+        :return: cost
         """
-        return neighbor_constraint(self.agent_id, context, agent_vals)
+        cost = 0.
+
+        # get value of this agent
+        agent_selected_value = agent_vals.pop(self.agent_id.get_value())
+        agent_selected_entity = context.get_entity(EntityID(agent_selected_value))
+
+        # get value of neighboring agent
+        neighbor_value = list(agent_vals.values())[0]
+        neighbor_selected_entity = context.get_entity(EntityID(neighbor_value))
+
+        if agent_selected_value == neighbor_value:
+            if agent_selected_value == SEARCH:
+                return cost
+
+            temp = agent_selected_entity.get_temperature()
+            if temp >= CRITICAL_TEMPERATURE_THRESHOLD:
+                cost -= MAX_PENALTY  # encourage same value selection
+            else:
+                cost += MAX_PENALTY  # discourage same value selection
+        else:
+            temps = [0.]
+            if agent_selected_value != SEARCH:
+                temps.append(agent_selected_entity.get_temperature())
+            if neighbor_value != SEARCH:
+                temps.append(neighbor_selected_entity.get_temperature())
+
+            max_temp = max(temps)
+            if max_temp >= CRITICAL_TEMPERATURE_THRESHOLD:
+                cost += MAX_PENALTY  # discourage selecting different values
+            else:
+                cost -= MAX_PENALTY  # encourage selecting different values
+
+        return cost
 
     def send_extinguish(self, time_step: int, target: EntityID, target_x: int, target_y: int, water: int = WATER_OUT):
         cmd = AKExtinguish(self.get_id(), time_step, target, target_x, target_y, water)
@@ -410,6 +485,36 @@ class FireBrigadeAgent(Agent):
             index=False,
             header=not os.path.exists(file_name),
         )
+
+    def select_search_target(self) -> Entity:
+        """
+        Use an exploration term to select an entity.
+        :return: selected entity
+        """
+        # calculate exploration score
+        exp_scoreboard = {}
+        max_score = 0
+        for building in self.buildings_for_domain:
+            building_id = building.get_id()
+            # exploration term
+            x = np.log(self.current_time_step) / max(1, self.visitation_freq[building_id])
+            val = np.sqrt(2 * len(self.bdi_agent.domain) * x)
+            exp_scoreboard[building_id] = val
+
+            # track max exp score
+            if val > max_score:
+                max_score = val
+
+        # find buildings with max score
+        qualified = []
+        for key in exp_scoreboard:
+            if exp_scoreboard[key] == max_score:
+                qualified.append(key)
+
+        # select a random entity from qualified list
+        selected_id = random.choice(qualified)
+        selected_entity = self.world_model.get_entity(selected_id)
+        return selected_entity
 
 
 class AKExtinguish(Command):

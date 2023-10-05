@@ -124,7 +124,7 @@ class ModelTrainer:
             'fieryness_x', 'temperature_x', 'brokenness_x', 'building_code_x', 'fire_index_x',
             'fieryness_y', 'temperature_y', 'brokenness_y', 'building_code_y', 'fire_index_y',
         ]
-        self.load_model()
+        # self.load_model()
 
     def load_model(self):
         model_file_name = f'{self.label}_model.pt'

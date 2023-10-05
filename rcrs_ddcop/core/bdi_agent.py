@@ -88,7 +88,7 @@ class BDIAgent(object):
 
     @property
     def optimization_op(self):
-        return 'max'
+        return 'min'
 
     @property
     def graph_traversing_order(self):
@@ -265,7 +265,7 @@ class BDIAgent(object):
                     self.graph.receive_already_active(message)
 
                 # DPOP message handling
-                case messaging.DPOPMsgTypes.VALUE_MESSAGE:
+                case messaging.DPOPMsgTypes.DPOP_VALUE_MESSAGE:
                     self.dcop.receive_value_message(message)
 
                 case messaging.DPOPMsgTypes.UTIL_MESSAGE:
@@ -283,6 +283,9 @@ class BDIAgent(object):
 
                 case messaging.CoCoAMsgTypes.UPDATE_STATE_MESSAGE:
                     self.dcop.receive_update_state_message(message)
+
+                case messaging.CoCoAMsgTypes.CoCoA_VALUE_MESSAGE:
+                    self.dcop.receive_cocoa_value_message(message)
 
                 case messaging.CoCoAMsgTypes.EXECUTION_REQUEST:
                     self.dcop.receive_execution_request_message(message)

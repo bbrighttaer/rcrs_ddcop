@@ -40,12 +40,12 @@ def process_data(raw_data: list[Data]) -> list:
 class ExperienceBuffer:
     """Stores data for training models"""
 
-    def __init__(self, log, capacity: int = 1000, lbl: str = ''):
+    def __init__(self, log, capacity: int = 2000, lbl: str = ''):
         self.memory = CircularDict(maxlen=capacity)
         self.lbl = lbl
         self.log = log
         self.ref_data_sz = 100
-        self.sim_threshold = 0.5
+        self.sim_threshold = 0.35
 
     def add(self, experience: List[Data]) -> list:
         """Adds an experience to the buffer"""

@@ -169,10 +169,10 @@ class AgentPseudoComm(object):
             })
         )
 
-    def send_value_message(self, agent_id, value):
+    def send_dpop_value_message(self, agent_id, value):
         self._send_to_agent(
             agent_id=agent_id,
-            body=messaging.create_value_message({
+            body=messaging.create_dpop_value_message({
                 'agent_id': self.agent_id,
                 'value': value,
             })
@@ -208,6 +208,12 @@ class AgentPseudoComm(object):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_inquiry_message(data),
+        )
+
+    def send_cocoa_value_message(self, agent_id, data):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_cocoa_value_message(data),
         )
 
     def send_pseudo_child_added_message(self, agent_id, **kwargs):
