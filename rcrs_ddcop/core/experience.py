@@ -108,11 +108,17 @@ class ExperienceBuffer:
             experiences = np.array(experiences)
 
             # calculate cosine similarity with reference data
-            sim = np.dot(experiences, ref_data.T) / (np.linalg.norm(experiences) * np.linalg.norm(ref_data))
+            try:
+                sim = np.dot(experiences, ref_data.T) / (np.linalg.norm(experiences) * np.linalg.norm(ref_data))
+            except Exception as e:
+                self.log.error(f'Error while merging experiences: {str(e)}')
+                return
             sim = np.max(sim, axis=1)
 
-            # select indices which are less similar
-            sel_idx = (sim < self.sim_threshold).nonzero()
+            # select indices which are less similar and avoid zero vectors
+            cond1 = (sim < self.sim_threshold)  # less similar
+            cond2 = (0. < sim)  # avoid zero vectors
+            sel_idx = (cond1 * cond2).nonzero()
             experiences = experiences[sel_idx].tolist()
             exp_keys = np.array(exp_keys)[sel_idx].tolist()
 

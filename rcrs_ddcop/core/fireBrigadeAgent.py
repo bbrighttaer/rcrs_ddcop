@@ -37,8 +37,8 @@ WATER_OUT = 500
 SEARCH = -1
 TRAVEL_DISTANCE = 30000
 MAX_TEMPERATURE = 1000
-MAX_PENALTY = 10
-MAX_AGENT_DENSITY = 2
+MAX_PENALTY = 5
+MAX_AGENT_DENSITY = 3
 EPSILON = eps = 1e-20
 VALUE_CHANGE_COST = 5
 CRITICAL_TEMPERATURE_THRESHOLD = 120
@@ -74,6 +74,7 @@ class FireBrigadeAgent(Agent):
         self.fire_calls_attended = []
         self.la_tuples = None
         self.consistency = 0
+        self.prev_value = None
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -275,7 +276,10 @@ class FireBrigadeAgent(Agent):
             selected_entity = self.select_search_target()
         else:
             selected_entity = self.world_model.get_entity(EntityID(agent_value))
+        if not selected_entity:
+            return
         selected_entity_id = selected_entity.entity_id
+        self.prev_value = selected_entity_id.get_value()
 
         # monitor decision
         if isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING_MORE:
@@ -290,7 +294,8 @@ class FireBrigadeAgent(Agent):
 
         # search
         if agent_value == SEARCH:
-            self.send_search(selected_entity_id)
+            n_road = self.get_neighboring_road(selected_entity)
+            self.send_search(n_road)
             self.target = None
 
         # rescue task
@@ -328,9 +333,10 @@ class FireBrigadeAgent(Agent):
                 self.consistency = 0
             else:
                 self.target = None
+                self.prev_value = None
         else:
             self.move_to_target(self.current_time_step)
-            self.target = None
+            # self.target = None
 
     def send_search(self, selected_entity_id):
         path = self.search.breadth_first_search(start=self.location().get_id(), goals=[selected_entity_id])
@@ -338,6 +344,7 @@ class FireBrigadeAgent(Agent):
             self.Log.info('Searching buildings')
             self.send_move(self.current_time_step, path)
         else:
+            self.Log.warning(f'Could not find path for {selected_entity_id}')
             self.Log.info('Moving randomly')
             path = self.random_walk()
             self.send_move(self.current_time_step, path)
@@ -397,6 +404,10 @@ class FireBrigadeAgent(Agent):
                 cost += MAX_PENALTY
             else:
                 cost -= MAX_PENALTY * (entity.get_temperature() / MAX_TEMPERATURE)
+
+            # decision change cost
+            # if self.prev_value and selected_value != self.prev_value:
+            #     cost += 2
 
         return cost
 
@@ -486,7 +497,7 @@ class FireBrigadeAgent(Agent):
             header=not os.path.exists(file_name),
         )
 
-    def select_search_target(self) -> Entity:
+    def select_search_target(self) -> Entity | None:
         """
         Use an exploration term to select an entity.
         :return: selected entity
@@ -494,7 +505,7 @@ class FireBrigadeAgent(Agent):
         # calculate exploration score
         exp_scoreboard = {}
         max_score = 0
-        for building in self.buildings_for_domain:
+        for building in filter(lambda b: b.get_fieryness() < Fieryness.COMPLETELY_BURNT, self.buildings_for_domain):
             building_id = building.get_id()
             # exploration term
             x = np.log(self.current_time_step) / max(1, self.visitation_freq[building_id])
@@ -505,15 +516,13 @@ class FireBrigadeAgent(Agent):
             if val > max_score:
                 max_score = val
 
-        # find buildings with max score
-        qualified = []
-        for key in exp_scoreboard:
-            if exp_scoreboard[key] == max_score:
-                qualified.append(key)
+        if not exp_scoreboard:
+            return None
 
-        # select a random entity from qualified list
-        selected_id = random.choice(qualified)
-        selected_entity = self.world_model.get_entity(selected_id)
+        # weighted random sampling
+        values = np.array(list(exp_scoreboard.values())) + 1e-10
+        entity_id = np.random.choice(list(exp_scoreboard.keys()), p=values/np.sum(values))
+        selected_entity = self.world_model.get_entity(entity_id)
         return selected_entity
 
 

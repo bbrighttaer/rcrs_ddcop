@@ -2,11 +2,12 @@ import threading
 
 import numpy as np
 import torch
+from rcrs_core.worldmodel.worldmodel import WorldModel
 from sklearn.preprocessing import StandardScaler
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
-from rcrs_ddcop.core.nn import ModelTrainer
+from rcrs_ddcop.core.nn import NNModelTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -29,16 +30,15 @@ class LA_CoCoA(DCOP):
         self.neighbor_states = {}
         self.neighbor_values = {}
         self.cost_map = {}
-        self.bin_horizon_size = 1
-        self.unary_horizon_size = 1
+        self.num_look_ahead_steps = 7
         self._sent_inquiries_list = []
 
-        self._model_trainer = ModelTrainer(
+        self._model_trainer = NNModelTrainer(
             label=self.label,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
-            batch_size=500,
-            transform=StandardScaler(),
+            sample_size=500,
+            batch_size=128,
         )
 
         self._time_step = 0
@@ -61,9 +61,9 @@ class LA_CoCoA(DCOP):
 
     def value_selection(self, val):
         # check for model training time step
-        # if not self._model_trainer.is_training:  # avoid multiple training calls
-        #     if self._time_step % self._training_cycle == 0:
-        #         threading.Thread(target=self._model_trainer).start()
+        if self._model_trainer.can_train and not self._model_trainer.is_training:  # avoid multiple training calls
+            if self._time_step % self._training_cycle == 0:
+                threading.Thread(target=self._model_trainer).start()
 
         # select value
         super(LA_CoCoA, self).value_selection(val)
@@ -152,8 +152,7 @@ class LA_CoCoA(DCOP):
         self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
 
         # apply unary constraints
-        belief = world_to_state(self.agent.belief)
-        world = state_to_world(belief)
+        world = self.get_belief()
         for val in total_cost_dict:
             try:
                 util = self.agent.unary_constraint(world, val)
@@ -162,8 +161,8 @@ class LA_CoCoA(DCOP):
                 pass
 
         # notify agent about predictions
-        if self.unary_horizon_size > 1 and self._model_trainer.has_trained:
-            self.agent.look_ahead_completed_cb(state_to_world(belief))
+        if self.num_look_ahead_steps > 0 and self._model_trainer.has_trained:
+            self.agent.look_ahead_completed_cb(world)
 
         self.log.info(f'Total cost dict: {total_cost_dict}')
         if self.agent.optimization_op == 'max':
@@ -249,7 +248,7 @@ class LA_CoCoA(DCOP):
         self.log.info(f'Received inquiry message from {sender}')
 
         # create world-view from local belief and shared belief for reasoning
-        context = self.agent.belief  # state_to_world(world_to_state(self.agent.belief))
+        context = self.get_belief()
 
         # if this agent has already set its value then keep it fixed
         iter_list = [self.value] if self.value and sender in self.graph.children else self.domain
@@ -295,11 +294,32 @@ class LA_CoCoA(DCOP):
         self.log.info(f'Received execution request: {payload}, state = {self.state}')
         self.execute_dcop()
 
-    def predict_next_state(self, belief, model):
-        # predict next state
-        model.eval()
-        x = model(belief)
-        return x.detach()
+    def get_belief(self) -> WorldModel:
+        if self.num_look_ahead_steps > 0 and self._model_trainer.has_trained:
+            model = self._model_trainer.model
+            belief = world_to_state(self.agent.belief)
+
+            # normalize
+            data = belief.x.numpy()
+            data[:, 1:] = 0.  # zero-out all column except temperature
+            x = self._model_trainer.normalizer.transform(data)
+
+            # predict next state
+            x_tensor = torch.tensor(x).float()
+            with torch.no_grad():
+                for i in range(self.num_look_ahead_steps):
+                    x_tensor = model(x_tensor)
+            output = x_tensor.detach().numpy()
+
+            # revert normalization
+            x = self._model_trainer.normalizer.inverse_transform(output)
+            x = np.clip(x, a_min=0., a_max=None)
+            x[:, 1:] = belief.x.numpy()[:, 1:]  # restore values of other features
+            belief.x = torch.tensor(x, dtype=torch.float)
+
+            return state_to_world(belief)
+        else:
+            return self.agent.belief
 
     def __str__(self):
         return 'CoCoA'

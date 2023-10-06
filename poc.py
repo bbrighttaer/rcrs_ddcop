@@ -11,7 +11,7 @@ from skopt.space import Real, Categorical, Integer
 from skopt import gp_minimize
 
 from rcrs_ddcop.core.experience import ExperienceBuffer
-from rcrs_ddcop.core.nn import ModelTrainer, NodeGCN, XGBTrainer
+from rcrs_ddcop.core.nn import NNModelTrainer, NodeGCN, XGBTrainer
 
 seed = 7
 random.seed(seed)
@@ -27,7 +27,7 @@ mode = 'xgb_train'
 sim_time_steps = 100
 
 if mode == 'train':
-    trainer = ModelTrainer(
+    trainer = NNModelTrainer(
         model=NodeGCN(dim=7),
         label='poc-agent-trainer',
         experience_buffer=exp_buffer,
@@ -68,7 +68,7 @@ else:
         lr, epochs, batch_size, weight_decay = float(args[0]), int(args[1]), int(args[2]), float(args[3])
         print(f'lr={lr}, epochs={epochs}, batch_size={batch_size}, weight_decay={weight_decay}')
 
-        trainer = ModelTrainer(
+        trainer = NNModelTrainer(
             model=NodeGCN(dim=7),
             label='poc-agent-trainer',
             experience_buffer=exp_buffer,

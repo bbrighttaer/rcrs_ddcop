@@ -72,8 +72,8 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
         node_urns.append(entity.get_urn().value)
         if isinstance(entity, Building):
             node_features.append([
-                entity.get_fieryness(),
                 entity.get_temperature(),
+                entity.get_fieryness(),
                 entity.get_brokenness(),
                 entity.get_building_code(),
                 b_fire_idx[entity.get_id()] if entity.get_id() in b_fire_idx else entity.get_temperature(),
@@ -108,8 +108,8 @@ def state_to_world(data: Data) -> WorldModel:
             id=node_id
         )
         if isinstance(entity, Building):
-            entity.set_fieryness(int(feat[0].item()))
-            entity.set_temperature(int(feat[1].item()))
+            entity.set_temperature(int(feat[0].item()))
+            entity.set_fieryness(int(feat[1].item()))
             entity.set_brokenness(int(feat[2].item()))
             entity.set_building_code(int(feat[3].item()))
         # elif isinstance(entity, Human):
