@@ -109,7 +109,8 @@ class ExperienceBuffer:
 
             # calculate cosine similarity with reference data
             try:
-                sim = np.dot(experiences, ref_data.T) / (np.linalg.norm(experiences) * np.linalg.norm(ref_data))
+                denom = (np.linalg.norm(experiences) * np.linalg.norm(ref_data)) + 1e-10
+                sim = np.dot(experiences, ref_data.T) / denom
             except Exception as e:
                 self.log.error(f'Error while merging experiences: {str(e)}')
                 return

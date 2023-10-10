@@ -1,6 +1,8 @@
 import random
 from typing import Callable
 
+import numpy as np
+
 
 class DCOP:
     """
@@ -18,6 +20,12 @@ class DCOP:
         self.value = None
         self._on_value_selected_cb = on_value_selected
         self.cost = None
+        if self.agent.optimization_op == 'max':
+            self.op = np.max
+            self.arg_op = np.argmax
+        else:
+            self.op = np.min
+            self.arg_op = np.argmin
 
     @property
     def domain(self):

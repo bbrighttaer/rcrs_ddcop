@@ -230,7 +230,7 @@ class BDIAgent(object):
 
         # reject outdated messages (every message has a timestamp)
         if not is_delayed and message_time_step < self.time_step:
-            self.log.warning(f'Cannot handle past message: {message}')
+            self.log.warning(f'Cannot handle past message {message["type"]}')
             return
 
         # store messages of future time step for processing when the agent is ready for this future time step

@@ -33,15 +33,17 @@ from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_agen
     create_update_look_ahead_tuples
 from rcrs_ddcop.utils.logger import Logger
 
-WATER_OUT = 500
-SEARCH = -1
+WATER_OUT = 800
+CONTINUOUS_DECISION_LIMIT = 2
+SEARCH_ID = -1
 TRAVEL_DISTANCE = 30000
 MAX_TEMPERATURE = 1000
-MAX_PENALTY = 5
-MAX_AGENT_DENSITY = 3
+COORDINATION_MAX_PENALTY = 20
+DENSITY_MAX_PENALTY = 20
+MAX_AGENT_DENSITY = 4
 EPSILON = eps = 1e-20
-VALUE_CHANGE_COST = 5
-CRITICAL_TEMPERATURE_THRESHOLD = 120
+VALUE_CHANGE_COST = 10
+CRITICAL_TEMPERATURE_THRESHOLD = 200
 
 
 def check_rescue_task(targets: List[Entity]) -> bool:
@@ -73,8 +75,9 @@ class FireBrigadeAgent(Agent):
         self.building_to_neighbors = defaultdict(list)
         self.fire_calls_attended = []
         self.la_tuples = None
-        self.consistency = 0
+        self.consistency_register = defaultdict(int)
         self.prev_value = None
+        self.exploration_factor = {}
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -175,6 +178,7 @@ class FireBrigadeAgent(Agent):
         self.Log.info(f'Moving to target {entity_type} {goal.get_value()}')
         if path:
             self.send_move(time_step, path)
+            ...
         else:
             self.Log.warning(f'Failed to plan path to {entity_type} {goal.get_value()}')
 
@@ -221,11 +225,12 @@ class FireBrigadeAgent(Agent):
 
         # update domain
         # targets = self.get_targets(change_set_entities)
-        if self.target:
+        if self.target and self.target.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE:
             domain = [self.target.get_id().get_value()]
         else:
-            domain = [c.get_id().get_value() for c in self.inspect_buildings_for_domain(change_set_entities)]
-            domain.append(SEARCH)
+            domain = [c.get_id().get_value() for c in self.inspect_buildings_for_domain(self.buildings_for_domain)]
+            self.calculate_exploration_factor(self.inspect_buildings_for_domain(self.buildings_for_domain))
+        # domain.append(SEARCH_ID)
         self.bdi_agent.domain = domain
 
         if not domain:
@@ -234,20 +239,21 @@ class FireBrigadeAgent(Agent):
 
         # construct experience tuple
         exp_keys = None
-        if self.cached_exp:
-            s_prime = world_to_state(
-                world_model=self.world_model,
-                entity_ids=self.cached_exp.nodes_order,
-            )
+        if time_step % 2 == 0:
+            if self.cached_exp:
+                s_prime = world_to_state(
+                    world_model=self.world_model,
+                    entity_ids=self.cached_exp.nodes_order,
+                )
 
-            exp_keys = self.bdi_agent.experience_buffer.add([self.cached_exp, s_prime])
+                exp_keys = self.bdi_agent.experience_buffer.add([self.cached_exp, s_prime])
 
-            # record look-ahead results
-            if self.la_tuples:
-                create_update_look_ahead_tuples(self.world_model, self.la_tuples, stage=3)
-                self.write_la_tuples_to_file()
-            self.la_tuples = create_update_look_ahead_tuples(self.world_model)
-        self.cached_exp = state
+                # record look-ahead results
+                if self.la_tuples:
+                    create_update_look_ahead_tuples(self.world_model, self.la_tuples, stage=3)
+                    self.write_la_tuples_to_file()
+                self.la_tuples = create_update_look_ahead_tuples(self.world_model)
+            self.cached_exp = state
 
         # share updates with neighbors
         self.bdi_agent.share_updates_with_neighbors(exp_keys=exp_keys)
@@ -258,21 +264,22 @@ class FireBrigadeAgent(Agent):
             return
 
         # continue execution if a task is in progress
-        if self.target:
-            self.bdi_agent.send_busy_to_neighbors()
-            self.extinguish_target()
+        # if self.target:
+        #     self.bdi_agent.send_busy_to_neighbors()
+        #     self.extinguish_target()
 
         # trigger deliberation if task fails/is cancelled
-        if not self.target:
-            self.deliberate(state, time_step)
-            time_taken = time.perf_counter() - start
-            self.bdi_agent.record_deliberation_time(time_step, time_taken)
-            self.Log.debug(f'Deliberation time = {time_taken}')
+        # if not self.target:
+        self.deliberate(state, time_step)
+        time_taken = time.perf_counter() - start
+        self.bdi_agent.record_deliberation_time(time_step, time_taken)
+        self.Log.debug(f'Deliberation time = {time_taken}')
 
     def deliberate(self, state, time_step):
         # execute thinking process
         agent_value, score = self.bdi_agent.deliberate(time_step)
-        if agent_value == SEARCH:
+        self.update_decision_consistency_register(agent_value)
+        if agent_value == SEARCH_ID:
             selected_entity = self.select_search_target()
         else:
             selected_entity = self.world_model.get_entity(EntityID(agent_value))
@@ -290,22 +297,18 @@ class FireBrigadeAgent(Agent):
             self.bdi_agent.record_agent_decision(time_step, self.target_initial_state)
 
         lbl = selected_entity.urn.name
-        self.Log.info(f'Time step {time_step}: selected {lbl} {selected_entity.entity_id.get_value()}')
+        self.Log.info(
+            f'Time step {time_step}: agent value={agent_value} selected {lbl} {selected_entity.entity_id.get_value()}'
+        )
 
         # search
-        if agent_value == SEARCH:
+        if agent_value == SEARCH_ID:
             n_road = self.get_neighboring_road(selected_entity)
             self.send_search(n_road)
             self.target = None
 
         # rescue task
         elif isinstance(selected_entity, Human) or isinstance(selected_entity, Building):
-            if self.target and self.target.get_id().get_value() == selected_entity.get_id().get_value():
-                self.consistency += 1
-            elif isinstance(selected_entity, Building) and selected_entity.get_fieryness() < Fieryness.BURNING_MORE:
-                self.consistency = 1
-            else:
-                self.consistency = 0
             self.target = selected_entity
 
             # if agent's location is the same as the target's location, start rescue mission
@@ -328,9 +331,6 @@ class FireBrigadeAgent(Agent):
                     self.target.get_x(),
                     self.target.get_y(),
                 )
-                self.bdi_agent.record_consistent_decision(self.current_time_step, self.consistency)
-                self.Log.debug(f'Consistency: {self.consistency}')
-                self.consistency = 0
             else:
                 self.target = None
                 self.prev_value = None
@@ -372,6 +372,12 @@ class FireBrigadeAgent(Agent):
 
         return 0.
 
+    def update_decision_consistency_register(self, value):
+        self.consistency_register[value] += 1
+        for k in self.consistency_register:
+            if k != value:
+                self.consistency_register[k] = 0
+
     def unary_constraint(self, context: WorldModel, selected_value) -> float:
         """
         Calculate cost of unary constraints.
@@ -379,10 +385,7 @@ class FireBrigadeAgent(Agent):
         :param selected_value: value for evaluation
         :return: cost
         """
-        if selected_value in [951]:
-            print()
-
-        if selected_value == SEARCH:
+        if selected_value == SEARCH_ID:
             return 0.
 
         cost = 0.
@@ -391,23 +394,27 @@ class FireBrigadeAgent(Agent):
 
         if entity.get_urn() == Building.urn:
             # distance
-            cost += distance(
-                x1=self.world_model.get_entity(entity.entity_id).get_x(),
-                y1=self.world_model.get_entity(entity.entity_id).get_y(),
-                x2=self.me().get_x(),
-                y2=self.me().get_y()
-            ) / TRAVEL_DISTANCE
+            # cost += distance(
+            #     x1=self.world_model.get_entity(entity.entity_id).get_x(),
+            #     y1=self.world_model.get_entity(entity.entity_id).get_y(),
+            #     x2=self.me().get_x(),
+            #     y2=self.me().get_y()
+            # ) / TRAVEL_DISTANCE
 
             # density
             density = self.get_density(entity)
-            if density > 1:
-                cost += MAX_PENALTY
-            else:
-                cost -= MAX_PENALTY * (entity.get_temperature() / MAX_TEMPERATURE)
+            if density > 1:  # or self.consistency_register[selected_value] > CONTINUOUS_DECISION_LIMIT:
+                cost += DENSITY_MAX_PENALTY
+            # else:
+            #     cost -= DENSITY_MAX_PENALTY * (entity.get_temperature() / MAX_TEMPERATURE)
+
+            # exploration term
+            cost -= self.exploration_factor.get(entity.get_id(), 0.)
 
             # decision change cost
-            # if self.prev_value and selected_value != self.prev_value:
-            #     cost += 2
+            if self.prev_value and selected_value != self.prev_value \
+                    and self.target and self.target.get_fieryness() > Fieryness.UNBURNT:
+                cost += VALUE_CHANGE_COST
 
         return cost
 
@@ -427,26 +434,29 @@ class FireBrigadeAgent(Agent):
         neighbor_selected_entity = context.get_entity(EntityID(neighbor_value))
 
         if agent_selected_value == neighbor_value:
-            if agent_selected_value == SEARCH:
+            if agent_selected_value == SEARCH_ID:
                 return cost
 
             temp = agent_selected_entity.get_temperature()
+            weight = temp / MAX_TEMPERATURE
             if temp >= CRITICAL_TEMPERATURE_THRESHOLD:
-                cost -= MAX_PENALTY  # encourage same value selection
+                cost -= weight * COORDINATION_MAX_PENALTY  # encourage same value selection
             else:
-                cost += MAX_PENALTY  # discourage same value selection
+                cost += weight * COORDINATION_MAX_PENALTY  # discourage same value selection
         else:
-            temps = [0.]
-            if agent_selected_value != SEARCH:
+            temps = []
+            if agent_selected_value != SEARCH_ID:
                 temps.append(agent_selected_entity.get_temperature())
-            if neighbor_value != SEARCH:
-                temps.append(neighbor_selected_entity.get_temperature())
-
-            max_temp = max(temps)
-            if max_temp >= CRITICAL_TEMPERATURE_THRESHOLD:
-                cost += MAX_PENALTY  # discourage selecting different values
             else:
-                cost -= MAX_PENALTY  # encourage selecting different values
+                temps.append(0.)
+            if neighbor_value != SEARCH_ID:
+                temps.append(neighbor_selected_entity.get_temperature())
+            else:
+                temps.append(0.)
+
+            temp = np.mean(temps)
+            weight = temp / MAX_TEMPERATURE
+            cost -= weight * COORDINATION_MAX_PENALTY
 
         return cost
 
@@ -521,9 +531,19 @@ class FireBrigadeAgent(Agent):
 
         # weighted random sampling
         values = np.array(list(exp_scoreboard.values())) + 1e-10
-        entity_id = np.random.choice(list(exp_scoreboard.keys()), p=values/np.sum(values))
+        entity_id = np.random.choice(list(exp_scoreboard.keys()), p=values/np.max(values))
         selected_entity = self.world_model.get_entity(entity_id)
         return selected_entity
+
+    def calculate_exploration_factor(self, entities: List[Entity]):
+        vals = []
+        for entity in entities:
+            x = np.log(self.current_time_step) / max(1, self.visitation_freq[entity.get_id()])
+            val = np.sqrt(2 * len(self.bdi_agent.domain) * x)
+            vals.append(val)
+        vals = np.array(vals) / (np.max(vals) + 1e-10)
+        for entity, v in zip(entities, vals):
+            self.exploration_factor[entity.get_id()] = v
 
 
 class AKExtinguish(Command):

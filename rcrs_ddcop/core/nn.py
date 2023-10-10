@@ -118,9 +118,10 @@ class NNModelTrainer(ModelTrainer):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         self.writer = SummaryWriter()
         self.count = 0
-        self.normalizer = StandardScaler()
+        self.normalizer = None
         self.is_training = False
         self.can_train = True
+        self.has_trained = False
         self.best_score = float('-inf')
         self.scheduler = StepLR(self.optimizer, step_size=10)
         self.columns = [
@@ -130,8 +131,8 @@ class NNModelTrainer(ModelTrainer):
         self.load_model()
 
     def load_model(self):
-        model_file_name = f'new-approach-long-run/{self.label}_model.pt'
-        scaler_file_name = f'new-approach-long-run/{self.label}_scaler.bin'
+        model_file_name = f'{self.label}_model.pt'
+        scaler_file_name = f'{self.label}_scaler.bin'
         self.model.load_state_dict(torch.load(model_file_name))
         self.model.eval()
         self.has_trained = True
@@ -158,6 +159,7 @@ class NNModelTrainer(ModelTrainer):
             # normalize data
             data_concat = np.concatenate([X, Y], axis=0)
             data_concat[:, 1:] = 0.  # zero-out all features except temperature
+            self.normalizer = StandardScaler()
             self.normalizer.fit(data_concat)
 
             # normalize samples

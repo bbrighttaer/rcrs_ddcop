@@ -30,7 +30,7 @@ class LA_CoCoA(DCOP):
         self.neighbor_states = {}
         self.neighbor_values = {}
         self.cost_map = {}
-        self.num_look_ahead_steps = 7
+        self.num_look_ahead_steps = 0
         self._sent_inquiries_list = []
 
         self._model_trainer = NNModelTrainer(
@@ -165,14 +165,10 @@ class LA_CoCoA(DCOP):
             self.agent.look_ahead_completed_cb(world)
 
         self.log.info(f'Total cost dict: {total_cost_dict}')
-        if self.agent.optimization_op == 'max':
-            op = np.max
-        else:
-            op = np.min
 
         costs = np.array([total_cost_dict[d]['cost'] for d in total_cost_dict])
         vals_list = list(total_cost_dict.keys())
-        opt_indices = np.argwhere(costs == op(costs)).flatten().tolist()
+        opt_indices = np.argwhere(costs == self.op(costs)).flatten().tolist()
         sel_idx = np.random.choice(opt_indices)
         self.value = vals_list[sel_idx]
         best_params = total_cost_dict[self.value]['params']
@@ -266,8 +262,8 @@ class LA_CoCoA(DCOP):
                 }
                 util_matrix[i, j] = self.agent.neighbor_constraint(context, agent_values)
 
-        utils = np.max(util_matrix, axis=0)
-        idx = np.argmax(util_matrix, axis=0)
+        utils = self.op(util_matrix, axis=0)
+        idx = self.arg_op(util_matrix, axis=0)
         msg = [(d, iter_list[i], u) for d, i, u in zip(sender_domain, idx, utils)]
 
         # send cost map (via cost message) to requesting agent
