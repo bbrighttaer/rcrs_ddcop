@@ -59,7 +59,7 @@ class BDIAgent(object):
 
         # create instances of main components
         self.comm = AgentPseudoComm(self)
-        self.graph = DIGCA(self, timeout=5, max_num_of_neighbors=5)
+        self.graph = DIGCA(self, timeout=3.5, max_num_of_neighbors=5)
         self.info_share = NeighborInfoSharing(self)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
@@ -195,7 +195,9 @@ class BDIAgent(object):
 
         self.log.info(
             f'parent={self.graph.parent}, '
+            f'pseudo-parents={self.graph.pseudo_parents}, '
             f'children={self.graph.children}, '
+            f'pseudo-children={self.graph.pseudo_children}, '
             f'agents-in-range={self.agents_in_comm_range}, '
             f'domain={self.domain}'
         )

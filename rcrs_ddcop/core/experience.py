@@ -84,7 +84,7 @@ class ExperienceBuffer:
         if batch_size < len(self):
             return random.sample(list(self.memory.values()), batch_size)
         elif self.memory:
-            return random.sample(list(self.memory.values()), len(self))
+            return list(self.memory.values())
 
     def select_exps_by_key(self, keys):
         exps = []

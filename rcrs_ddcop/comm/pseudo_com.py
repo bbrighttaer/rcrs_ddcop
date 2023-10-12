@@ -78,7 +78,7 @@ class AgentPseudoComm(object):
             auto_ack=True
         )
 
-    def listen_to_network(self, duration=0.01):
+    def listen_to_network(self, duration=0.1):
         self.client.sleep(duration)
 
     def _send_to_agent(self, agent_id, body):

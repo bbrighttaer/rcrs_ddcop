@@ -171,7 +171,7 @@ class FireBrigadeAgent(Agent):
             refuge_id = refuges[0].get_id()
             self.Log.info(f'Refilling water tank at Refuge {refuge_id}')
             path = self.search.breadth_first_search(self.location().get_id(), [refuge_id])
-            # self.send_move(self.current_time_step, path)
+            self.send_move(self.current_time_step, path)
 
     def update_visitation_frequency(self, entities: List[Entity]):
         for entity in entities:
@@ -190,7 +190,7 @@ class FireBrigadeAgent(Agent):
         entity_type = self.world_model.get_entity(goal).urn.name
         self.Log.info(f'Moving to target {entity_type} {goal.get_value()}')
         if path:
-            # self.send_move(time_step, path)
+            self.send_move(time_step, path)
             ...
         else:
             self.Log.warning(f'Failed to plan path to {entity_type} {goal.get_value()}')
@@ -206,8 +206,9 @@ class FireBrigadeAgent(Agent):
     def think(self, time_step, change_set, heard):
         start = time.perf_counter()
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
-        if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
-            self.send_subscribe(time_step, [1, 2])
+        if time_step < int(self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY)):
+            # self.send_subscribe(time_step, [1, 2])
+            return
 
         # get visible entity_ids
         change_set_entity_ids = list(change_set.changed.keys())
@@ -344,12 +345,12 @@ class FireBrigadeAgent(Agent):
         path = self.search.breadth_first_search(start=self.location().get_id(), goals=[selected_entity_id])
         if path:
             self.Log.info('Searching buildings')
-            # self.send_move(self.current_time_step, path)
+            self.send_move(self.current_time_step, path)
         else:
             self.Log.warning(f'Could not find path for {selected_entity_id}')
             self.Log.info('Moving randomly')
             path = self.random_walk()
-            # self.send_move(self.current_time_step, path)
+            self.send_move(self.current_time_step, path)
 
     def update_unexplored_buildings(self, change_set_entities):
         for entity in change_set_entities:
@@ -445,20 +446,20 @@ class FireBrigadeAgent(Agent):
                 cost -= weight * COORDINATION_MAX_PENALTY  # encourage same value selection
             else:
                 cost += weight * COORDINATION_MAX_PENALTY  # discourage same value selection
-        else:
-            temps = []
-            if agent_selected_value != SEARCH_ID:
-                temps.append(agent_selected_entity.get_temperature())
-            else:
-                temps.append(0.)
-            if neighbor_value != SEARCH_ID:
-                temps.append(neighbor_selected_entity.get_temperature())
-            else:
-                temps.append(0.)
-
-            temp = np.mean(temps)
-            weight = temp / MAX_TEMPERATURE
-            cost -= weight * COORDINATION_MAX_PENALTY
+        # else:
+        #     temps = []
+        #     if agent_selected_value != SEARCH_ID:
+        #         temps.append(agent_selected_entity.get_temperature())
+        #     else:
+        #         temps.append(0.)
+        #     if neighbor_value != SEARCH_ID:
+        #         temps.append(neighbor_selected_entity.get_temperature())
+        #     else:
+        #         temps.append(0.)
+        #
+        #     temp = np.mean(temps)
+        #     weight = temp / MAX_TEMPERATURE
+        #     cost -= weight * COORDINATION_MAX_PENALTY
 
         return cost
 
@@ -539,11 +540,12 @@ class FireBrigadeAgent(Agent):
 
     def calculate_exploration_factor(self, entities: List[Entity]):
         vals = []
+        epsilon = 1e-10
         for entity in entities:
-            x = np.log(self.current_time_step) / max(1, self.visitation_freq[entity.get_id()])
+            x = np.log(self.current_time_step) / max(epsilon, self.visitation_freq[entity.get_id()])
             val = np.sqrt(2 * len(self.bdi_agent.domain) * x)
             vals.append(val)
-        vals = np.array(vals) / (np.max(vals) + 1e-10)
+        vals = np.array(vals) / (np.max(vals) + epsilon)
         for entity, v in zip(entities, vals):
             self.exploration_factor[entity.get_id()] = v
 
