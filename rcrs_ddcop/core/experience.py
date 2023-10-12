@@ -19,9 +19,13 @@ class Experience:
         return self.__dict__
 
 
-def process_data(raw_data: list[Data]) -> list:
+def process_data(raw_data: list) -> list:
     state = raw_data[0]
-    s_prime = raw_data[1]
+    # actions = raw_data[1]  # selected values
+    s_prime = raw_data[2]
+
+    # actions = np.zeros((len(state.x), len(actions))) + actions
+    # actions = torch.from_numpy(actions)
 
     # remove uninformative rows
     # idx = state.x[:, 0] != s_prime.x[:, 0]
@@ -33,19 +37,21 @@ def process_data(raw_data: list[Data]) -> list:
     # identify change in fieriness
     # diff = torch.clip(state.x[:, 0] - s_prime.x[:, 0], 0, 1).view(-1, 1)
     # x = torch.concat([state.x[:, :-1], diff], dim=1)
+    # x = torch.concat([state.x, actions, s_prime.x], dim=1).tolist()
     x = torch.concat([state.x, s_prime.x], dim=1).tolist()
     return x
 
 
 class ExperienceBuffer:
-    """Stores data for training models"""
+    """Stores train_data for training models"""
 
     def __init__(self, log, capacity: int = 2000, lbl: str = ''):
         self.memory = CircularDict(maxlen=capacity)
         self.lbl = lbl
         self.log = log
-        self.ref_data_sz = 100
+        self.ref_data_sz = 500
         self.sim_threshold = 0.35
+        self.recent_keys = None
 
     def add(self, experience: List[Data]) -> list:
         """Adds an experience to the buffer"""
@@ -54,6 +60,11 @@ class ExperienceBuffer:
         keys = [f'{self.lbl}_{sz + i}' for i, e in enumerate(x)]
         if experience and x:
             self.merge_experiences(x, keys)
+
+        # if len(self) > 100:
+        #     data = self.sample(100)
+        #     np.savetxt(f'{self.lbl}.csv', np.array(data), delimiter=',')
+
         return keys
 
     def add_processed_exp(self, exp, key):
@@ -99,7 +110,7 @@ class ExperienceBuffer:
 
         initial_buffer_sz = len(self)
 
-        # get reference data
+        # get reference train_data
         ref_data = self.sample(self.ref_data_sz)
         if ref_data:
             ref_data = np.array(ref_data)
@@ -107,7 +118,7 @@ class ExperienceBuffer:
             # convert exps to matrix
             experiences = np.array(experiences)
 
-            # calculate cosine similarity with reference data
+            # calculate cosine similarity with reference train_data
             try:
                 denom = (np.linalg.norm(experiences) * np.linalg.norm(ref_data)) + 1e-10
                 sim = np.dot(experiences, ref_data.T) / denom
@@ -118,7 +129,7 @@ class ExperienceBuffer:
 
             # select indices which are less similar and avoid zero vectors
             cond1 = (sim < self.sim_threshold)  # less similar
-            cond2 = (0. < sim)  # avoid zero vectors
+            cond2 = (0.01 < sim)  # avoid zero vectors
             sel_idx = (cond1 * cond2).nonzero()
             experiences = experiences[sel_idx].tolist()
             exp_keys = np.array(exp_keys)[sel_idx].tolist()

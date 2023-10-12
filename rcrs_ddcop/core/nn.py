@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 # from torch_geometric.loader import DataLoader
 # from torch_geometric.nn import GCNConv, global_mean_pool, TopKPooling
 import xgboost as xgb
@@ -21,7 +22,7 @@ from rcrs_ddcop.core.experience import ExperienceBuffer
 
 
 def save_training_data(label, data, columns, suffix):
-    # save data
+    # save train_data
     df = pd.DataFrame(
         data,
         columns=columns,
@@ -37,18 +38,18 @@ def save_training_data(label, data, columns, suffix):
 #         self.pool1 = TopKPooling(16, ratio=0.3)
 #         self.output = nn.Linear(16, n_out_dim)
 #
-#     def forward(self, data):
-#         x, edge_index = data.x, data.edge_index
+#     def forward(self, train_data):
+#         x, edge_index = train_data.x, train_data.edge_index
 #
 #         # obtain node embeddings
 #         x = self.conv1(x, edge_index)
 #         x = F.relu(x)
 #         x = F.dropout(x, training=self.training)
 #         x = self.conv2(x, edge_index)
-#         x = self.pool1(x, edge_index, batch=data.batch)
+#         x = self.pool1(x, edge_index, batch=train_data.batch)
 #
 #         # readout layer
-#         x = global_mean_pool(x, batch=data.batch)
+#         x = global_mean_pool(x, batch=train_data.batch)
 #         x = F.relu(x)
 #
 #         # output layer
@@ -64,8 +65,8 @@ def save_training_data(label, data, columns, suffix):
 #         self.conv3 = GCNConv(4, 16)
 #         self.conv4 = GCNConv(16, dim)
 #
-#     def forward(self, data):
-#         x, edge_index = data.x, data.edge_index
+#     def forward(self, train_data):
+#         x, edge_index = train_data.x, train_data.edge_index
 #
 #         # encoder
 #         x = self.conv1(x, edge_index)
@@ -97,6 +98,54 @@ class ModelTrainer:
         self.is_training = False
 
 
+class VariationalEncoder(nn.Module):
+
+    def __init__(self, latent_dim: int, input_dim: int):
+        super(VariationalEncoder, self).__init__()
+        self.linear1 = nn.Linear(input_dim, 128)
+        self.linear_mu = nn.Linear(128, latent_dim)
+        self.linear_sigma = nn.Linear(128, latent_dim)
+
+        self.N = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+        self.kl = 0
+
+    def forward(self, x):
+        x = F.relu(self.linear1(x))
+        mu = self.linear_mu(x)
+        log_sigma = self.linear_sigma(x)
+        eps = self.N.sample(mu.shape).squeeze()
+        z = mu + torch.exp(log_sigma / 2) * eps
+        v = torch.exp(log_sigma) + torch.square(mu) - 1. - log_sigma
+        self.kl = 0.5 * torch.sum(v)
+        return z
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, latent_dim: int, output_dim: int):
+        super(Decoder, self).__init__()
+        self.linear1 = nn.Linear(latent_dim, 128)
+        self.linear2 = nn.Linear(128, output_dim)
+
+    def forward(self, z):
+        z = F.relu(self.linear1(z))
+        z = torch.sigmoid(self.linear2(z))
+        return z
+
+
+class VariationalAutoencoder(nn.Module):
+
+    def __init__(self, latent_dim: int, input_dim: int, output_dim: int):
+        super(VariationalAutoencoder, self).__init__()
+        self.encoder = VariationalEncoder(latent_dim, input_dim)
+        self.decoder = Decoder(latent_dim, output_dim)
+
+    def forward(self, x):
+        z = self.encoder(x)
+        z = self.decoder(z)
+        return z
+
+
 class NNModelTrainer(ModelTrainer):
 
     def __init__(self, label: str, experience_buffer: ExperienceBuffer, log: Logger, sample_size: int,
@@ -109,13 +158,18 @@ class NNModelTrainer(ModelTrainer):
             nn.ReLU(),
             nn.Linear(10, self.num_features),
         )
+        # self.model = VariationalAutoencoder(
+        #     latent_dim=5,
+        #     input_dim=self.num_features,
+        #     output_dim=self.num_features,
+        # )
         self.experience_buffer = experience_buffer
         self.sample_size = sample_size
         self.batch_size = batch_size
         self.log = log
         self.epochs = epochs
         self.criterion = torch.nn.MSELoss()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        self.optimizer = torch.optim.Adam(self.model.parameters())  # , lr=lr, weight_decay=weight_decay)
         self.writer = SummaryWriter()
         self.count = 0
         self.normalizer = None
@@ -128,11 +182,11 @@ class NNModelTrainer(ModelTrainer):
             'temperature_x', 'fieryness_x', 'brokenness_x', 'building_code_x', 'fire_index_x',
             'temperature_y', 'fieryness_y', 'brokenness_y', 'building_code_y', 'fire_index_y',
         ]
-        self.load_model()
+        # self.load_model()
 
     def load_model(self):
-        model_file_name = f'{self.label}_model.pt'
-        scaler_file_name = f'{self.label}_scaler.bin'
+        model_file_name = f'FireBrigadeAgent_410064826_model.pt'
+        scaler_file_name = f'FireBrigadeAgent_410064826_scaler.bin'
         self.model.load_state_dict(torch.load(model_file_name))
         self.model.eval()
         self.has_trained = True
@@ -141,9 +195,9 @@ class NNModelTrainer(ModelTrainer):
         self.log.info('Model loaded successfully')
 
     def __call__(self, *args, **kwargs):
-        """Trains the given model using data from the experience buffer"""
+        """Trains the given model using train_data from the experience buffer"""
 
-        # ensure there is enough data to sample from
+        # ensure there is enough train_data to sample from
         if not self.can_train or len(self.experience_buffer) < self.sample_size * 2:
             return
 
@@ -153,20 +207,21 @@ class NNModelTrainer(ModelTrainer):
         with self:
             dataset = self.experience_buffer.sample(self.sample_size)
             dataset = np.array(dataset)
-            # save_training_data(self.label, dataset, self.columns, 'original')
+            save_training_data(self.label, dataset, self.columns, 'original')
             X, Y = dataset[:, :self.num_features], dataset[:, self.num_features:]
 
-            # normalize data
-            data_concat = np.concatenate([X, Y], axis=0)
+            # normalize train_data
+            data_concat = np.concatenate([X, 2. * Y], axis=0)
             data_concat[:, 1:] = 0.  # zero-out all features except temperature
-            self.normalizer = StandardScaler()
-            self.normalizer.fit(data_concat)
+            normalizer = StandardScaler()
+            normalizer.fit(data_concat)
+            self.normalizer = normalizer
 
             # normalize samples
             X = self.normalizer.transform(data_concat[:X.shape[0], :])
             Y = self.normalizer.transform(data_concat[X.shape[0]:, :])
 
-            # split data
+            # split train_data
             X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, shuffle=True)
 
             # convert to tensors
@@ -192,7 +247,9 @@ class NNModelTrainer(ModelTrainer):
                     outputs = self.model(b_x_train)
 
                     # calculate training loss
-                    train_loss = self.criterion(outputs[:, 0], b_y_train[:, 0])
+                    train_loss = self.criterion(outputs[:, 0],  b_y_train[:, 0])
+                    # train_loss = self.criterion(outputs, b_y_train[:, :self.num_features])
+                    # train_loss = train_loss + self.model.encoder.kl
                     b_losses.append(train_loss.item())
 
                     # backward pass
@@ -223,7 +280,7 @@ class NNModelTrainer(ModelTrainer):
             joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
 
         self.count += 1
-        self.scheduler.step()
+        # self.scheduler.step()
 
         self.has_trained = True
 
@@ -298,7 +355,7 @@ class XGBTrainer:
 
     def __call__(self, *args, **kwargs):
         """Trains the prediction model"""
-        # ensure there is enough data to sample from
+        # ensure there is enough train_data to sample from
         if len(self.experience_buffer) < 10:
             return
 
@@ -317,21 +374,21 @@ class XGBTrainer:
             self._save_training_data(dataset, columns, 'original')
 
             # try:
-            #     X, Y = correct_skewed_data(data.x, data.y, columns, 'fieryness_x')
+            #     X, Y = correct_skewed_data(train_data.x, train_data.y, columns, 'fieryness_x')
             # except ValueError as e:
             #     self.log.warning(f'Training terminated due to: {str(e)}')
             #     return
             X, Y = dataset[:, :5], dataset[:, 5:]
 
-            # normalize data to zero mean, unit variance
+            # normalize train_data to zero mean, unit variance
             self.normalizer.fit(np.concatenate([X, Y], axis=0))
             X = self.normalizer.transform(X)
             Y = self.normalizer.transform(Y)
-            # wts = np.array([1. if 3 > e > 0 else 0.2 for e in data.y[:, 0]])
+            # wts = np.array([1. if 3 > e > 0 else 0.2 for e in train_data.y[:, 0]])
 
             X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, shuffle=True)
 
-            # put data into xgb matrix
+            # put train_data into xgb matrix
             dtrain = xgb.DMatrix(data=X_train, label=y_train[:, :-1])
             dval = xgb.DMatrix(data=X_val, label=y_val[:, :-1])
 

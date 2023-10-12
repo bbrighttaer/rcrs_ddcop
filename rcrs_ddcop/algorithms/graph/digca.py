@@ -134,7 +134,7 @@ class DIGCA(DynaGraph):
             # self.report_connection(parent=self.agent.agent_id, child=sender, constraint=constraint)
         else:
             self.log.debug(f'Rejected AddMe from agent: {sender}, sending AlreadyActive message')
-            self.comm.send_already_active_message(self.agent.agent_id)
+            self.comm.send_already_active_message(sender)
 
     def receive_child_added(self, message):
         self.log.debug(f'Received ChildAdded: {message}')
@@ -174,8 +174,12 @@ class DIGCA(DynaGraph):
             self.start_dcop()
 
     def receive_already_active(self, message):
+        sender = message['payload']['agent_id']
         self.log.debug(f'Received AlreadyActive: {message}')
         self.state = State.INACTIVE
+
+        # remove the sender from the Announce msg received list so that the sender can broadcast again
+        self._sent_announce_msg_list.remove(sender)
 
     def receive_pseudo_parent_request(self, message):
         sender = message['payload']['agent_id']
@@ -186,7 +190,7 @@ class DIGCA(DynaGraph):
         self.pseudo_children.append(sender)
         self.agent.add_neighbor_domain(sender, message['payload']['domain'])
         self.comm.send_pseudo_child_added_message(sender, domain=self.agent.domain)
-        self.log.debug(f'Agent {sender} add as pseudo child successfully')
+        self.log.debug(f'Agent {sender} added as pseudo child successfully')
 
         # callbacks
         self.fire_callbacks(
@@ -231,14 +235,14 @@ class DIGCA(DynaGraph):
 
     def _get_potential_children(self):
         agents = []
-        for _agt in set(self.agent.new_agents) - set(self.neighbors):
+        for _agt in set(self.agent.new_agents) - set(self.all_neighbors):
             if _agt > self.agent.agent_id:
                 agents.append(_agt)
 
         return agents
 
     def has_potential_parent(self):
-        for _agt in set(self.agent.new_agents) - set(self.neighbors):
+        for _agt in set(self.agent.new_agents) - set(self.all_neighbors):
             if _agt < self.agent.agent_id:
                 return True
 

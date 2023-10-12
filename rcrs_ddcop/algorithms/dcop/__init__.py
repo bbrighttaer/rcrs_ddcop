@@ -48,6 +48,10 @@ class DCOP:
 
     def value_selection(self, val):
         self._on_value_selected_cb(val, cost=self.cost)
+        self.on_state_value_selection(self.agent.agent_id, val)
+
+    def on_state_value_selection(self, agent, value):
+        self.agent.on_state_value_selection(agent, value)
 
     # ---------------- Algorithm specific methods ----------------------- #
 

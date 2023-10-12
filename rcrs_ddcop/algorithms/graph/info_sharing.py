@@ -84,8 +84,11 @@ class NeighborInfoSharing:
         self.log.debug(f'Received exp sharing message from {sender}')
         self.exp_buffer.merge_experiences(shared_exps, shared_exp_keys)
 
-    def send_neighbor_update_message(self, exp_keys):
-        exps = self.exp_buffer.select_exps_by_key(exp_keys)
+    def send_neighbor_update_message(self, exp_keys=None):
+        if exp_keys:
+            exps = self.exp_buffer.select_exps_by_key(exp_keys)
+        else:
+            exps = []
         for agent in self.graph.get_connected_agents():
             self.comm.send_neighbor_update_message(
                 agent_id=agent,
@@ -100,7 +103,8 @@ class NeighborInfoSharing:
         self.log.info(f'Received neighbor update message from {sender}')
 
         # update neighbor domain
-        self._agent.add_neighbor_domain(sender, data['domain'])
+        if 'domain' in data:
+            self._agent.add_neighbor_domain(sender, data['domain'])
 
         # if an experience was shared, merge it
         shared_exp = data.get('exps')

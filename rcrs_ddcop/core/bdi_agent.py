@@ -3,6 +3,7 @@ import threading
 from collections import deque
 from functools import partial
 
+import numpy as np
 from rcrs_core.agents.agent import Agent
 
 from rcrs_ddcop.algorithms.dcop.la_cocoa import LA_CoCoA
@@ -10,7 +11,7 @@ from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.algorithms.graph.info_sharing import NeighborInfoSharing
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
-from rcrs_ddcop.core.data import dict_to_state
+from rcrs_ddcop.core.data import dict_to_state, world_to_state
 from rcrs_ddcop.core.enums import InfoSharingType
 from rcrs_ddcop.core.experience import ExperienceBuffer
 
@@ -27,7 +28,6 @@ class BDIAgent(object):
         self.belief = agent.world_model
         self.log = agent.Log
         self._domain = []
-        self._state = None
         self._agents_in_comm_range = []
         self.busy_neighbors = []
         self._value = None
@@ -38,6 +38,7 @@ class BDIAgent(object):
         self.experience_buffer = ExperienceBuffer(lbl=self.label, log=self.log)
         self._timeout = 3.5
         self.look_ahead_tuples = None
+        self.all_agents_selected_vals = {}
 
         self._decision_timeout_count = 0
 
@@ -49,12 +50,16 @@ class BDIAgent(object):
         # manages when control is returned to agent entity
         self._value_selection_evt = threading.Event()
 
+        # manage experience creation between time steps
+        self._state = None
+        self.selected_values = None
+
         # paused messages queue
         self.paused_messages = deque()
 
         # create instances of main components
         self.comm = AgentPseudoComm(self)
-        self.graph = DIGCA(self, timeout=2.5, max_num_of_neighbors=3)
+        self.graph = DIGCA(self, timeout=5, max_num_of_neighbors=5)
         self.info_share = NeighborInfoSharing(self)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
@@ -70,9 +75,17 @@ class BDIAgent(object):
     def state(self):
         return self._state
 
-    @state.setter
-    def state(self, s):
+    def set_state(self, s):
+        # check and create experience
+        exp_keys = []
+        if self._state:
+            s_prime = world_to_state(
+                world_model=self._rcrs_agent.world_model,
+                entity_ids=self.state.nodes_order,
+            )
+            exp_keys = self.experience_buffer.add([self._state, self.selected_values, s_prime])
         self._state = s
+        return exp_keys
 
     @property
     def agents_in_comm_range(self):
@@ -84,7 +97,7 @@ class BDIAgent(object):
 
     @property
     def new_agents(self):
-        return set(self.agents_in_comm_range) - set(self.graph.neighbors)
+        return set(self.agents_in_comm_range) - set(self.graph.all_neighbors)
 
     @property
     def optimization_op(self):
@@ -134,6 +147,7 @@ class BDIAgent(object):
     def clear_current_value(self):
         self._previous_value = self._value
         self._value = None
+        self.all_agents_selected_vals.clear()
 
     def belief_revision_function(self):
         ...
@@ -323,9 +337,9 @@ class BDIAgent(object):
         self.log.info(f'Received shared message from {sender}')
 
         # if message_type == InfoSharingType.STATE_SHARING:
-        #     shared_exp = data.get('exp')
-        #     self.add_neighbor_domain(sender, data['domain'])
-        #     self.add_neighbor_previous_value(sender, data['previous_value'])
+        #     shared_exp = train_data.get('exp')
+        #     self.add_neighbor_domain(sender, train_data['domain'])
+        #     self.add_neighbor_previous_value(sender, train_data['previous_value'])
         #
         #     if shared_exp:
         #         self.experience_buffer.add(
@@ -377,3 +391,18 @@ class BDIAgent(object):
         for agt in self.agents_in_comm_range:
             self.comm.send_busy_message(agt, {'agent_id': self.agent_id})
 
+    def on_state_value_selection(self, agent, value):
+        self.log.debug(f'Received neighbor value from {agent} = {value}')
+        self.all_agents_selected_vals[agent] = value
+
+        if len(self.all_agents_selected_vals) == len(self.graph.all_neighbors) + 1:
+            # get building index registers
+            b2i = self._rcrs_agent.building_to_index
+            i2b = self._rcrs_agent.index_to_building
+
+            # construct one-hot vector of buildings that were selected
+            vals = list(self.all_agents_selected_vals.values())
+            indices = [b2i[v] for v in vals]
+            arr = np.zeros((len(b2i)))
+            arr[indices] = 1
+            self.selected_values = arr

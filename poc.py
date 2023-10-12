@@ -1,97 +1,135 @@
+import math
 import random
-from logging import getLogger
-from time import perf_counter
 
-import numpy as np
-import xgboost as xgb
+import joblib
 import torch
-from sklearn.metrics import r2_score
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from skopt.space import Real, Categorical, Integer
-from skopt import gp_minimize
+from torch import no_grad
+from torch.utils.tensorboard import SummaryWriter
 
-from rcrs_ddcop.core.experience import ExperienceBuffer
-from rcrs_ddcop.core.nn import NNModelTrainer, NodeGCN, XGBTrainer
-
-seed = 7
+seed = 0
 random.seed(seed)
-np.random.seed(seed)
 torch.manual_seed(seed)
 
-data = torch.load('AmbulanceTeamAgent_482151809.pt')
-exp_buffer = ExperienceBuffer()
-exp_buffer.memory = data
 
-mode = 'xgb_train'
+class VariationalEncoder(nn.Module):
 
-sim_time_steps = 100
+    def __init__(self, latent_dim: int, input_dim: int):
+        super(VariationalEncoder, self).__init__()
+        self.linear1 = nn.Linear(input_dim, 128)
+        self.linear_mu = nn.Linear(128, latent_dim)
+        self.linear_sigma = nn.Linear(128, latent_dim)
 
-if mode == 'train':
-    trainer = NNModelTrainer(
-        model=NodeGCN(dim=7),
-        label='poc-agent-trainer',
-        experience_buffer=exp_buffer,
-        log=getLogger(__name__),
-        transform=StandardScaler(),
-        batch_size=32,
-        lr=6e-3,  # 0.006060360647573297,
-        epochs=100,
-        weight_decay=0,
+        self.N = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+        self.kl = 0
+
+    def forward(self, x):
+        x = F.relu(self.linear1(x))
+        mu = self.linear_mu(x)
+        log_sigma = self.linear_sigma(x)
+        eps = self.N.sample(mu.shape).squeeze()
+        z = mu + torch.exp(log_sigma / 2) * eps
+        v = torch.exp(log_sigma) + torch.square(mu) - 1. - log_sigma
+        self.kl = 0.5 * torch.sum(v)
+        return z
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, latent_dim: int, output_dim: int):
+        super(Decoder, self).__init__()
+        self.linear1 = nn.Linear(latent_dim, 128)
+        self.linear2 = nn.Linear(128, output_dim)
+
+    def forward(self, z):
+        z = F.relu(self.linear1(z))
+        z = torch.sigmoid(self.linear2(z))
+        return z
+
+
+class VariationalAutoencoder(nn.Module):
+
+    def __init__(self, latent_dim: int, input_dim: int, output_dim: int):
+        super(VariationalAutoencoder, self).__init__()
+        self.encoder = VariationalEncoder(latent_dim, input_dim)
+        self.decoder = Decoder(latent_dim, output_dim)
+
+    def forward(self, x):
+        z = self.encoder(x)
+        z = self.decoder(z)
+        return z
+
+
+def train(autoencoder: VariationalAutoencoder, train_data: np.array, output_dim, tb_writer, epochs: int = 1000):
+    opt = torch.optim.Adam(autoencoder.parameters())
+    batch_size = 128
+    num_batches = math.ceil(train_data.shape[0] / batch_size)
+    count = 0
+    criterion = torch.nn.MSELoss()
+    for epoch in range(epochs):
+        for i in range(num_batches):
+            offset = i * batch_size
+            x = train_data[offset: offset + batch_size, :]
+            x = torch.tensor(x).float()
+            opt.zero_grad()
+            x_hat = autoencoder(x)
+            x_true = x[:, : output_dim]
+            val_loss = criterion(x_hat, x_true)
+            loss = val_loss + autoencoder.encoder.kl
+            loss.backward()
+            opt.step()
+            print(loss.item())
+            tb_writer.add_scalar('vae loss', loss.item(), count)
+            count += 1
+
+    return autoencoder
+
+
+if __name__ == '__main__':
+    samples = pd.read_csv('FireBrigadeAgent_1962675462.csv', header=None).to_numpy()
+    writer = SummaryWriter()
+    data = samples[:, :5]
+    latent_dim = 3
+    data_dim = data.shape[-1]
+    output_dim = 5
+
+    # normalization
+    scaler = StandardScaler()
+    data = scaler.fit_transform(data)
+
+    vae = VariationalAutoencoder(
+        latent_dim=latent_dim,
+        input_dim=data_dim,
+        output_dim=output_dim,
     )
+    vae = train(autoencoder=vae, train_data=data, output_dim=output_dim, tb_writer=writer)
+    print('done!')
+    #
+    torch.save(vae.state_dict(), f'vae_poc_model.pt')
+    joblib.dump(scaler, f'vae_poc_scaler.bin')
 
-    start = perf_counter()
-    for i in range(sim_time_steps):
-        trainer()
-    print(f'time = {perf_counter() - start}')
-
-elif mode == 'xgb_train':
-    trainer = XGBTrainer(
-        label='poc-agent-xgb-trainer',
-        experience_buffer=exp_buffer,
-        log=getLogger(__name__),
-        transform=StandardScaler(),
-        rounds=100,
-        model_params={
-            'objective': 'reg:squarederror',
-            'max_depth': 10,
-            'learning_rate': 1e-2,
-            'reg_lambda': 1e-3,
-        }
-    )
-
-    start = perf_counter()
-    for i in range(10):
-        score = trainer()
-    print(f'time = {perf_counter() - start}, score = {score}')
-else:
-    def objective_function(args):
-        lr, epochs, batch_size, weight_decay = float(args[0]), int(args[1]), int(args[2]), float(args[3])
-        print(f'lr={lr}, epochs={epochs}, batch_size={batch_size}, weight_decay={weight_decay}')
-
-        trainer = NNModelTrainer(
-            model=NodeGCN(dim=7),
-            label='poc-agent-trainer',
-            experience_buffer=exp_buffer,
-            log=getLogger(__name__),
-            transform=StandardScaler(),
-            batch_size=batch_size,
-            lr=lr,
-            epochs=epochs,
-            weight_decay=weight_decay,
-        )
-        s = []
-        for i in range(sim_time_steps):
-            s.append(trainer())
-        score = np.mean(s)
-        return score
+    # with torch.no_grad():
+    #     vae.load_state_dict(torch.load('vae_poc_model.pt'))
+    #     scaler = joblib.load('vae_poc_scaler.bin')
+    #
+    #     # predict
+    #     for i in range(1):
+    #         st = samples[i].reshape(1, -1)
+    #         s = st[:, :5]
+    #         s = scaler.transform(s)
+    #         state = st[:, :5]
+    #         n_state = st[:, 42:]
+    #         print(f'{state}, {n_state}')
+    #         x = torch.from_numpy(s).float()
+    #         x = vae(x)
+    #         # x = torch.concat([x, torch.zeros((1, 37))], dim=1)
+    #         x = scaler.inverse_transform(x.numpy())
+    #         print(x[:, :5])
 
 
-    hparam_search = {
-        'lr': Real(1e-6, 1e-1, prior='log-uniform'),
-        'epochs': Integer(4, 100),
-        'batch_size': Categorical([4, 16, 32]),
-        'weight_decay': Real(1e-6, 1e-1),
-    }
 
-    res = gp_minimize(objective_function, hparam_search.values(), n_calls=100)
-    print(f'Best score={res.fun:.4f}, lr={res.x[0]}, epochs={res.x[1]}, batch_size={res.x[2]}, weigh_decay={res.x[3]}')
+

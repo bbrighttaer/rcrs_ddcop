@@ -257,7 +257,7 @@ class LookAheadOptimization:
         data = payload['payload']
         sender = data['agent_id']
         U1 = torch.tensor(data['U1'])
-        # U2 = data['U2']
+        # U2 = train_data['U2']
 
         self._util_msg_receipt_order.append(sender)  # Q
         # self._neighbor_optimal_vals.append(U2)  # V

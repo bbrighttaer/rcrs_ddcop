@@ -33,7 +33,7 @@ def _get_unburnt_neighbors(world_model: WorldModel, building: Building) -> list:
 
 def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, edge_index: torch.Tensor = None) -> Data:
     """
-    Extracts properties from the given world to construct a Pytorch Geometric (PyG) data instance.
+    Extracts properties from the given world to construct a Pytorch Geometric (PyG) train_data instance.
 
     :param world_model: The world model or belief to lookup entities
     :param entity_ids: list of entities for constructing the state.
@@ -99,7 +99,7 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
 
 
 def state_to_world(data: Data) -> WorldModel:
-    """Converts a PyG data object to a World model"""
+    """Converts a PyG train_data object to a World model"""
     world_model = WorldModel()
 
     for feat, node_id, node_urn in zip(data.x, data.nodes_order, data.node_urns):
@@ -122,7 +122,7 @@ def state_to_world(data: Data) -> WorldModel:
 
 
 def state_to_dict(data: Data) -> dict:
-    """Converts a PyG data object to python dictionary"""
+    """Converts a PyG train_data object to python dictionary"""
     return {
         'x': data.x.tolist(),
         'nodes_order': data.nodes_order,
@@ -131,7 +131,7 @@ def state_to_dict(data: Data) -> dict:
 
 
 def dict_to_state(data: dict) -> Data:
-    """Reverses a PyG data object to dictionary conversion"""
+    """Reverses a PyG train_data object to dictionary conversion"""
     return Data(
         x=torch.tensor(data['x'], dtype=torch.float),
         nodes_order=data['nodes_order'],
@@ -166,7 +166,7 @@ def correct_skewed_data(X, Y, columns, target_col):
         [8, 0, 0],  ## under-sample
     ]
     # data_bal = smogn.smoter(
-    #     data=pd.DataFrame(data, columns=columns),
+    #     train_data=pd.DataFrame(train_data, columns=columns),
     #     y=target_col,
     #     rel_thres=0.1,
     #     rel_method='manual',

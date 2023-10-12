@@ -43,7 +43,7 @@ DENSITY_MAX_PENALTY = 20
 MAX_AGENT_DENSITY = 4
 EPSILON = eps = 1e-20
 VALUE_CHANGE_COST = 10
-CRITICAL_TEMPERATURE_THRESHOLD = 200
+CRITICAL_TEMPERATURE_THRESHOLD = 300
 
 
 def check_rescue_task(targets: List[Entity]) -> bool:
@@ -67,7 +67,6 @@ class FireBrigadeAgent(Agent):
         self.target = None
         self.target_initial_state = None
         self.can_rescue = False
-        self.cached_exp = None
         self.visitation_freq = defaultdict(int)
         self.buildings_for_domain = []
         self.roads = []
@@ -78,6 +77,12 @@ class FireBrigadeAgent(Agent):
         self.consistency_register = defaultdict(int)
         self.prev_value = None
         self.exploration_factor = {}
+        self.building_to_index = {}
+        self.index_to_building = {}
+
+    @property
+    def number_of_buildings(self):
+        return len(self.buildings_for_domain)
 
     def precompute(self):
         self.Log.info('precompute finished')
@@ -88,6 +93,7 @@ class FireBrigadeAgent(Agent):
         self.search = BFSSearch(self.world_model)
 
         # get buildings and refuges in the environment
+        building_ids = []
         for entity in self.world_model.get_entities():
             if entity.get_urn() == Refuge.urn:
                 self.refuges.add(entity)
@@ -95,6 +101,7 @@ class FireBrigadeAgent(Agent):
             elif entity.get_urn() == Building.urn:
                 self.unexplored_buildings[entity.entity_id] = entity
                 self.buildings_for_domain.append(entity)
+                building_ids.append(entity.entity_id.id)
 
             elif entity.get_urn() == Road.urn:
                 self.roads.append(entity)
@@ -107,6 +114,12 @@ class FireBrigadeAgent(Agent):
                     ],
                     key=lambda x: x[1],
                 )
+
+        # get global index of buildings
+        building_ids = sorted(building_ids)
+        for i, b_id in enumerate(building_ids):
+            self.building_to_index[b_id] = i
+            self.index_to_building[i] = b_id
 
     def get_targets(self, entities: List[Entity]) -> list[Entity]:
         """Gets the entities that could be rescued by this agent"""
@@ -158,7 +171,7 @@ class FireBrigadeAgent(Agent):
             refuge_id = refuges[0].get_id()
             self.Log.info(f'Refilling water tank at Refuge {refuge_id}')
             path = self.search.breadth_first_search(self.location().get_id(), [refuge_id])
-            self.send_move(self.current_time_step, path)
+            # self.send_move(self.current_time_step, path)
 
     def update_visitation_frequency(self, entities: List[Entity]):
         for entity in entities:
@@ -177,7 +190,7 @@ class FireBrigadeAgent(Agent):
         entity_type = self.world_model.get_entity(goal).urn.name
         self.Log.info(f'Moving to target {entity_type} {goal.get_value()}')
         if path:
-            self.send_move(time_step, path)
+            # self.send_move(time_step, path)
             ...
         else:
             self.Log.warning(f'Failed to plan path to {entity_type} {goal.get_value()}')
@@ -221,15 +234,15 @@ class FireBrigadeAgent(Agent):
 
         # construct agent's state from world view
         state = world_to_state(self.world_model, entity_ids=[e.get_value() for e in change_set_entity_ids])
-        self.bdi_agent.state = state
+        exp_keys = self.bdi_agent.set_state(state)
 
         # update domain
         # targets = self.get_targets(change_set_entities)
-        if self.target and self.target.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE:
-            domain = [self.target.get_id().get_value()]
-        else:
-            domain = [c.get_id().get_value() for c in self.inspect_buildings_for_domain(self.buildings_for_domain)]
-            self.calculate_exploration_factor(self.inspect_buildings_for_domain(self.buildings_for_domain))
+        # if self.target and self.target.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE:
+        #     domain = [self.target.get_id().get_value()]
+        # else:
+        domain = [c.get_id().get_value() for c in self.inspect_buildings_for_domain(self.buildings_for_domain)]
+        self.calculate_exploration_factor(self.inspect_buildings_for_domain(self.buildings_for_domain))
         # domain.append(SEARCH_ID)
         self.bdi_agent.domain = domain
 
@@ -237,23 +250,12 @@ class FireBrigadeAgent(Agent):
             self.Log.warning('Domain set is empty')
             return
 
-        # construct experience tuple
-        exp_keys = None
-        if time_step % 2 == 0:
-            if self.cached_exp:
-                s_prime = world_to_state(
-                    world_model=self.world_model,
-                    entity_ids=self.cached_exp.nodes_order,
-                )
-
-                exp_keys = self.bdi_agent.experience_buffer.add([self.cached_exp, s_prime])
-
-                # record look-ahead results
-                if self.la_tuples:
-                    create_update_look_ahead_tuples(self.world_model, self.la_tuples, stage=3)
-                    self.write_la_tuples_to_file()
-                self.la_tuples = create_update_look_ahead_tuples(self.world_model)
-            self.cached_exp = state
+        if time_step > 1:
+            # record look-ahead results
+            if self.la_tuples:
+                create_update_look_ahead_tuples(self.world_model, self.la_tuples, stage=3)
+                self.write_la_tuples_to_file()
+            self.la_tuples = create_update_look_ahead_tuples(self.world_model)
 
         # share updates with neighbors
         self.bdi_agent.share_updates_with_neighbors(exp_keys=exp_keys)
@@ -342,12 +344,12 @@ class FireBrigadeAgent(Agent):
         path = self.search.breadth_first_search(start=self.location().get_id(), goals=[selected_entity_id])
         if path:
             self.Log.info('Searching buildings')
-            self.send_move(self.current_time_step, path)
+            # self.send_move(self.current_time_step, path)
         else:
             self.Log.warning(f'Could not find path for {selected_entity_id}')
             self.Log.info('Moving randomly')
             path = self.random_walk()
-            self.send_move(self.current_time_step, path)
+            # self.send_move(self.current_time_step, path)
 
     def update_unexplored_buildings(self, change_set_entities):
         for entity in change_set_entities:
