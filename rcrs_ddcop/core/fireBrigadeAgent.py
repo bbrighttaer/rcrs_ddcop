@@ -9,6 +9,7 @@ from typing import List
 
 import numpy as np
 import pandas as pd
+import torch
 from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from sklearn.metrics.pairwise import cosine_similarity
 from rcrs_core.agents.agent import Agent
@@ -80,6 +81,12 @@ class FireBrigadeAgent(Agent):
         self.building_to_index = {}
         self.index_to_building = {}
 
+    def _set_seed(self):
+        seed = self.agent_id.get_value()
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
     @property
     def number_of_buildings(self):
         return len(self.buildings_for_domain)
@@ -88,6 +95,7 @@ class FireBrigadeAgent(Agent):
         self.Log.info('precompute finished')
 
     def post_connect(self):
+        self._set_seed()
         self.Log = Logger(self.get_name(), self.get_id())
         threading.Thread(target=self._start_bdi_agent, daemon=True).start()
         self.search = BFSSearch(self.world_model)

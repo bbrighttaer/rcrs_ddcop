@@ -17,11 +17,6 @@ from rcrs_ddcop.core.fireStationAgent import FireStationAgent  # noqa
 from rcrs_ddcop.core.policeOfficeAgent import PoliceOfficeAgent  # noqa
 from rcrs_ddcop.core.ambulanceCenterAgent import AmbulanceCenterAgent  # noqa
 
-seed = 7
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-
 
 class Launcher:
     def __init__(self, ):
