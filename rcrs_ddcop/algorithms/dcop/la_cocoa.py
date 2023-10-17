@@ -32,7 +32,7 @@ class LA_CoCoA(DCOP):
         self.neighbor_states = {}
         self.neighbor_values = {}
         self.cost_map = {}
-        self.num_look_ahead_steps = 5
+        self.num_look_ahead_steps = 0
         self._sent_inquiries_list = []
 
         self.model_trainer = NNModelTrainer(
@@ -299,28 +299,26 @@ class LA_CoCoA(DCOP):
 
     def get_belief(self) -> WorldModel:
         if self.num_look_ahead_steps > 0:  # and self.model_trainer.has_trained and self.model_trainer.normalizer:
-            # model = self.model_trainer.model
+            model = self.model_trainer.model
             belief = world_to_state(self.agent.belief)
-            #
-            # # normalize
-            # data = belief.x.numpy()
-            # data[:, 1:] = 0.  # zero-out all column except temperature
-            # x = self.model_trainer.normalizer.transform(data)
-            #
-            # # predict next state
-            # x_tensor = torch.tensor(x).float()
-            # with torch.no_grad():
-            #     for i in range(self.num_look_ahead_steps):
-            #         x_tensor = model(x_tensor)
-            # output = x_tensor.detach().numpy()
-            #
-            # # revert normalization
-            # x = self.model_trainer.normalizer.inverse_transform(output)
-            # x = np.clip(x, a_min=0., a_max=None)
-            # x[:, 1:] = belief.x.numpy()[:, 1:]  # restore values of other features
+
+            # normalize
+            data = belief.x.numpy()
+            data[:, 1:] = 0.  # zero-out all column except temperature
+            x = self.model_trainer.normalizer.transform(data)
+
+            # predict next state
+            x_tensor = torch.tensor(x).float()
+            with torch.no_grad():
+                for i in range(self.num_look_ahead_steps):
+                    x_tensor = model(x_tensor)
+            output = x_tensor.detach().numpy()
+
+            # revert normalization
+            x = self.model_trainer.normalizer.inverse_transform(output)
+            x = np.clip(x, a_min=0., a_max=None)
+            x[:, 1:] = belief.x.numpy()[:, 1:]  # restore values of other features
             x = belief.x.numpy()
-            for i in range(self.num_look_ahead_steps):
-                x[:, 0] = 2 * x[:, 0]
             belief.x = torch.from_numpy(x).float()
 
             return state_to_world(belief)

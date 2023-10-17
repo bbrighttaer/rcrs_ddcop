@@ -153,16 +153,16 @@ class NNModelTrainer(ModelTrainer):
         super().__init__()
         self.label = label
         self.num_features = 5
-        self.model = nn.Sequential(
-            nn.Linear(self.num_features, 10),
-            nn.ReLU(),
-            nn.Linear(10, self.num_features),
-        )
-        # self.model = VariationalAutoencoder(
-        #     latent_dim=5,
-        #     input_dim=self.num_features,
-        #     output_dim=self.num_features,
+        # self.model = nn.Sequential(
+        #     nn.Linear(self.num_features, 10),
+        #     nn.ReLU(),
+        #     nn.Linear(10, self.num_features),
         # )
+        self.model = VariationalAutoencoder(
+            latent_dim=5,
+            input_dim=self.num_features,
+            output_dim=self.num_features,
+        )
         self.experience_buffer = experience_buffer
         self.sample_size = sample_size
         self.batch_size = batch_size
@@ -198,7 +198,7 @@ class NNModelTrainer(ModelTrainer):
         """Trains the given model using train_data from the experience buffer"""
 
         # ensure there is enough train_data to sample from
-        if not self.can_train or len(self.experience_buffer) < self.sample_size * 2:
+        if not self.can_train or len(self.experience_buffer) < self.sample_size:
             return
 
         self.log.debug('Training initiated...')
@@ -247,9 +247,9 @@ class NNModelTrainer(ModelTrainer):
                     outputs = self.model(b_x_train)
 
                     # calculate training loss
-                    train_loss = self.criterion(outputs[:, 0],  b_y_train[:, 0])
-                    # train_loss = self.criterion(outputs, b_y_train[:, :self.num_features])
-                    # train_loss = train_loss + self.model.encoder.kl
+                    # train_loss = self.criterion(outputs[:, 0], b_y_train[:, 0])
+                    train_loss = self.criterion(outputs, b_y_train[:, :self.num_features])
+                    train_loss = train_loss + self.model.encoder.kl
                     b_losses.append(train_loss.item())
 
                     # backward pass

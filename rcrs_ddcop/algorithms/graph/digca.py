@@ -218,7 +218,7 @@ class DIGCA(DynaGraph):
             agent=sender,
         )
 
-        if len(set(self._pseudo_parent_request_mgs)) == len(self._get_potential_children()) and not self.agent.value:
+        if self.can_start_dcop() and not self.agent.value:
             self.start_dcop()
 
     def receive_pseudo_child_added_message(self, message):
@@ -240,6 +240,9 @@ class DIGCA(DynaGraph):
                 cb_types=[DynamicGraphCallback.PSEUDO_PARENT_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
                 agent=sender,
             )
+
+            if self.can_start_dcop() and not self.agent.value:
+                self.start_dcop()
 
     def receive_parent_available_message(self, message):
         # self.log.debug(f'Received parent available message: {message}')

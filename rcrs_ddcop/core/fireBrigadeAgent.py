@@ -511,12 +511,12 @@ class FireBrigadeAgent(Agent):
             'temperature_3': temp_3,
         })
         file_name = f'{self.name}_{self.get_id().get_value()}.csv'
-        look_ahead_history_df.to_csv(
-            file_name,
-            mode='a',
-            index=False,
-            header=not os.path.exists(file_name),
-        )
+        # look_ahead_history_df.to_csv(
+        #     file_name,
+        #     mode='a',
+        #     index=False,
+        #     header=not os.path.exists(file_name),
+        # )
 
     def select_search_target(self) -> Entity | None:
         """

@@ -54,12 +54,15 @@ class DynaGraph:
         return self.get_connected_agents()
 
     def start_dcop(self, timeout=False):
-        if timeout or len(self.all_neighbors) == len(self.agent.agents_in_comm_range):
+        if timeout or self.can_start_dcop():
             self.log.info(f'Starting DCOP...')
             self.agent.execute_dcop()
             self.exec_started = True
         else:
             self.log.info(f'DCOP not started, waiting for {self.agent.new_agents}')
+
+    def can_start_dcop(self):
+        return len(self.all_neighbors) == len(self.agent.agents_in_comm_range)
 
     def report_connection(self, parent, child, constraint):
         # self.channel.basic_publish(exchange=messaging.COMM_EXCHANGE,
