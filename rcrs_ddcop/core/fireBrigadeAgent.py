@@ -242,8 +242,8 @@ class FireBrigadeAgent(Agent):
         self.can_rescue = check_rescue_task(targets)
 
         # construct agent's state from world view
-        state = world_to_state(self.world_model, entity_ids=[e.get_value() for e in change_set_entity_ids])
-        exp_keys = self.bdi_agent.set_state(state)
+        state = world_to_state(self.world_model)
+        exp_keys = self.bdi_agent.set_state(state, time_step)
 
         # update domain
         # targets = self.get_targets(change_set_entities)

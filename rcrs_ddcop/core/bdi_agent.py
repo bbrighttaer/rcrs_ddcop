@@ -53,6 +53,8 @@ class BDIAgent(object):
         # manage experience creation between time steps
         self._state = None
         self.selected_values = None
+        self._partial_traj = []
+        self._trajectory_length = 10
 
         # paused messages queue
         self.paused_messages = deque()
@@ -75,16 +77,15 @@ class BDIAgent(object):
     def state(self):
         return self._state
 
-    def set_state(self, s):
-        # check and create experience
+    def set_state(self, state, time_step):
         exp_keys = []
-        if self._state:
-            s_prime = world_to_state(
-                world_model=self._rcrs_agent.world_model,
-                entity_ids=self.state.nodes_order,
-            )
-            exp_keys = self.experience_buffer.add([self._state, self.selected_values, s_prime])
-        self._state = s
+        self._state = state
+        self._partial_traj.append(state)
+
+        # check and create trajectory
+        if self._partial_traj and len(self._partial_traj) % self._trajectory_length == 0:
+            exp_keys = self.experience_buffer.add(trajectory=self._partial_traj)
+            self._partial_traj = self._partial_traj[-1:]
         return exp_keys
 
     @property

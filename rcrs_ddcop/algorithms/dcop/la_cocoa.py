@@ -63,9 +63,9 @@ class LA_CoCoA(DCOP):
 
     def value_selection(self, val):
         # check for model training time step
-        if self.model_trainer.can_train and not self.model_trainer.is_training:  # avoid multiple training calls
-            if self._time_step % self._training_cycle == 0:
-                threading.Thread(target=self.model_trainer).start()
+        # if self.model_trainer.can_train and not self.model_trainer.is_training:  # avoid multiple training calls
+        #     if self._time_step % self._training_cycle == 0:
+        #         threading.Thread(target=self.model_trainer).start()
 
         # select value
         super(LA_CoCoA, self).value_selection(val)

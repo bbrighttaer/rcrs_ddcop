@@ -20,25 +20,8 @@ class Experience:
 
 
 def process_data(raw_data: list) -> list:
-    state = raw_data[0]
-    # actions = raw_data[1]  # selected values
-    s_prime = raw_data[2]
-
-    # actions = np.zeros((len(state.x), len(actions))) + actions
-    # actions = torch.from_numpy(actions)
-
-    # remove uninformative rows
-    # idx = state.x[:, 0] != s_prime.x[:, 0]
-    # state.x = state.x[idx]
-    # s_prime.x = s_prime.x[idx]
-    # if len(state.x) == 0 or len(s_prime.x) == 0:
-    #     return []
-
-    # identify change in fieriness
-    # diff = torch.clip(state.x[:, 0] - s_prime.x[:, 0], 0, 1).view(-1, 1)
-    # x = torch.concat([state.x[:, :-1], diff], dim=1)
-    # x = torch.concat([state.x, actions, s_prime.x], dim=1).tolist()
-    x = torch.concat([state.x, s_prime.x], dim=1).tolist()
+    data_ = [state.x for state in raw_data]
+    x = torch.concat(data_, dim=1).tolist()
     return x
 
 
@@ -53,17 +36,18 @@ class ExperienceBuffer:
         self.sim_threshold = 0.35
         self.recent_keys = None
 
-    def add(self, experience: List[Data]) -> list:
+    def add(self, trajectory: List[Data]) -> list:
         """Adds an experience to the buffer"""
-        x = process_data(experience)
+        x = process_data(trajectory)
         sz = len(self)
         keys = [f'{self.lbl}_{sz + i}' for i, e in enumerate(x)]
-        if experience and x:
+        if trajectory and x:
             self.merge_experiences(x, keys)
 
-        # if len(self) > 100:
-        #     data = self.sample(100)
-        #     np.savetxt(f'{self.lbl}.csv', np.array(data), delimiter=',')
+        # for debugging
+        if len(self) > 500:
+            data = self.sample(len(self))
+            np.savetxt(f'{self.lbl}.csv', np.array(data), delimiter=',')
 
         return keys
 
