@@ -20,9 +20,10 @@ class VariationalEncoder(nn.Module):
 
     def __init__(self, latent_dim: int, input_dim: int):
         super(VariationalEncoder, self).__init__()
-        self.linear1 = nn.Linear(input_dim, 128)
-        self.linear_mu = nn.Linear(128, latent_dim)
-        self.linear_sigma = nn.Linear(128, latent_dim)
+        self.linear1 = nn.Linear(input_dim, 64)
+        self.bn = nn.BatchNorm1d(num_features=64)
+        self.linear_mu = nn.Linear(64, latent_dim)
+        self.linear_sigma = nn.Linear(64, latent_dim)
 
         self.N = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
         self.kl = 0
@@ -42,8 +43,8 @@ class Decoder(nn.Module):
 
     def __init__(self, latent_dim: int, output_dim: int):
         super(Decoder, self).__init__()
-        self.linear1 = nn.Linear(latent_dim, 128)
-        self.linear2 = nn.Linear(128, output_dim)
+        self.linear1 = nn.Linear(latent_dim, 64)
+        self.linear2 = nn.Linear(64, output_dim)
 
     def forward(self, z):
         z = F.relu(self.linear1(z))
@@ -64,9 +65,9 @@ class VariationalAutoencoder(nn.Module):
         return z
 
 
-def train(autoencoder: VariationalAutoencoder, train_data: np.array, output_dim, tb_writer, epochs: int = 1000):
-    opt = torch.optim.Adam(autoencoder.parameters())
-    batch_size = 128
+def train(autoencoder: VariationalAutoencoder, train_data: np.array, output_dim, tb_writer, epochs: int = 2000):
+    opt = torch.optim.Adam(autoencoder.parameters(), lr=0.1)
+    batch_size = 256
     num_batches = math.ceil(train_data.shape[0] / batch_size)
     count = 0
     criterion = torch.nn.MSELoss()
@@ -90,45 +91,54 @@ def train(autoencoder: VariationalAutoencoder, train_data: np.array, output_dim,
 
 
 if __name__ == '__main__':
-    samples = pd.read_csv('FireBrigadeAgent_1962675462.csv', header=None).to_numpy()
+    samples = pd.read_csv('FireBrigadeAgent_210552869_training_data_original.csv').to_numpy()
     writer = SummaryWriter()
     data = samples[:, :5]
-    latent_dim = 3
+    latent_dim = 4
     data_dim = data.shape[-1]
     output_dim = 5
 
     # normalization
     scaler = StandardScaler()
     data = scaler.fit_transform(data)
+    num_features = 5
 
+    is_train = False
     vae = VariationalAutoencoder(
         latent_dim=latent_dim,
         input_dim=data_dim,
         output_dim=output_dim,
     )
-    vae = train(autoencoder=vae, train_data=data, output_dim=output_dim, tb_writer=writer)
-    print('done!')
-    #
-    torch.save(vae.state_dict(), f'vae_poc_model.pt')
-    joblib.dump(scaler, f'vae_poc_scaler.bin')
+    # vae = nn.Sequential(
+    #     nn.Linear(num_features, 10),
+    #     nn.ReLU(),
+    #     nn.Linear(10, num_features),
+    # )
+    if is_train:
+        vae = train(autoencoder=vae, train_data=data, output_dim=output_dim, tb_writer=writer)
+        print('done!')
 
-    # with torch.no_grad():
-    #     vae.load_state_dict(torch.load('vae_poc_model.pt'))
-    #     scaler = joblib.load('vae_poc_scaler.bin')
-    #
-    #     # predict
-    #     for i in range(1):
-    #         st = samples[i].reshape(1, -1)
-    #         s = st[:, :5]
-    #         s = scaler.transform(s)
-    #         state = st[:, :5]
-    #         n_state = st[:, 42:]
-    #         print(f'{state}, {n_state}')
-    #         x = torch.from_numpy(s).float()
-    #         x = vae(x)
-    #         # x = torch.concat([x, torch.zeros((1, 37))], dim=1)
-    #         x = scaler.inverse_transform(x.numpy())
-    #         print(x[:, :5])
+        torch.save(vae.state_dict(), f'vae_poc_model.pt')
+        joblib.dump(scaler, f'vae_poc_scaler.bin')
+    else:
+        with torch.no_grad():
+            vae.load_state_dict(torch.load('vae_poc_model.pt'))
+            scaler = joblib.load('vae_poc_scaler.bin')
+
+            # predict
+            st = samples[0].reshape(1, -1)
+            s = st[:, :5]
+            s = scaler.transform(s)
+            state = st[:, :5]
+            n_state = st[:, 5:]
+            print(f'{state}, {n_state}')
+            x = s
+            for i in range(20):
+                x = torch.from_numpy(s).float()
+                x = vae(x)
+                # x = torch.concat([x, torch.zeros((1, 37))], dim=1)
+                x = scaler.inverse_transform(x.numpy())
+                print(x[:, :5])
 
 
 
