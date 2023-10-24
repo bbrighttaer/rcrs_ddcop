@@ -136,7 +136,7 @@ if __name__ == '__main__':
             for i in range(20):
                 x = torch.from_numpy(s).float()
                 x = vae(x)
-                # x = torch.concat([x, torch.zeros((1, 37))], dim=1)
+                # val_data = torch.concat([val_data, torch.zeros((1, 37))], dim=1)
                 x = scaler.inverse_transform(x.numpy())
                 print(x[:, :5])
 

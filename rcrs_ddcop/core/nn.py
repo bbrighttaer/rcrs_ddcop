@@ -39,22 +39,22 @@ def save_training_data(label, data, columns, suffix):
 #         self.output = nn.Linear(16, n_out_dim)
 #
 #     def forward(self, train_data):
-#         x, edge_index = train_data.x, train_data.edge_index
+#         val_data, edge_index = train_data.val_data, train_data.edge_index
 #
 #         # obtain node embeddings
-#         x = self.conv1(x, edge_index)
-#         x = F.relu(x)
-#         x = F.dropout(x, training=self.training)
-#         x = self.conv2(x, edge_index)
-#         x = self.pool1(x, edge_index, batch=train_data.batch)
+#         val_data = self.conv1(val_data, edge_index)
+#         val_data = F.relu(val_data)
+#         val_data = F.dropout(val_data, training=self.training)
+#         val_data = self.conv2(val_data, edge_index)
+#         val_data = self.pool1(val_data, edge_index, batch=train_data.batch)
 #
 #         # readout layer
-#         x = global_mean_pool(x, batch=train_data.batch)
-#         x = F.relu(x)
+#         val_data = global_mean_pool(val_data, batch=train_data.batch)
+#         val_data = F.relu(val_data)
 #
 #         # output layer
-#         x = self.output(x)
-#         return x
+#         val_data = self.output(val_data)
+#         return val_data
 
 
 # class NodeGCN(torch.nn.Module):
@@ -66,24 +66,24 @@ def save_training_data(label, data, columns, suffix):
 #         self.conv4 = GCNConv(16, dim)
 #
 #     def forward(self, train_data):
-#         x, edge_index = train_data.x, train_data.edge_index
+#         val_data, edge_index = train_data.val_data, train_data.edge_index
 #
 #         # encoder
-#         x = self.conv1(x, edge_index)
-#         x = F.relu(x)
-#         x = F.dropout(x, training=self.training)
+#         val_data = self.conv1(val_data, edge_index)
+#         val_data = F.relu(val_data)
+#         val_data = F.dropout(val_data, training=self.training)
 #
 #         # bottleneck
-#         x = self.conv2(x, edge_index)
-#         x = F.relu(x)
+#         val_data = self.conv2(val_data, edge_index)
+#         val_data = F.relu(val_data)
 #
 #         # decoder
-#         x = self.conv3(x, edge_index)
-#         x = F.relu(x)
-#         x = F.dropout(x, training=self.training)
-#         x = self.conv4(x, edge_index)
+#         val_data = self.conv3(val_data, edge_index)
+#         val_data = F.relu(val_data)
+#         val_data = F.dropout(val_data, training=self.training)
+#         val_data = self.conv4(val_data, edge_index)
 #
-#         return x
+#         return val_data
 
 
 class ModelTrainer:
@@ -98,52 +98,52 @@ class ModelTrainer:
         self.is_training = False
 
 
-class VariationalEncoder(nn.Module):
-
-    def __init__(self, latent_dim: int, input_dim: int):
-        super(VariationalEncoder, self).__init__()
-        self.linear1 = nn.Linear(input_dim, 128)
-        self.linear_mu = nn.Linear(128, latent_dim)
-        self.linear_sigma = nn.Linear(128, latent_dim)
-
-        self.N = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
-        self.kl = 0
-
-    def forward(self, x):
-        x = F.relu(self.linear1(x))
-        mu = self.linear_mu(x)
-        log_sigma = self.linear_sigma(x)
-        eps = self.N.sample(mu.shape).squeeze()
-        z = mu + torch.exp(log_sigma / 2) * eps
-        v = torch.exp(log_sigma) + torch.square(mu) - 1. - log_sigma
-        self.kl = 0.5 * torch.sum(v)
-        return z
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, latent_dim: int, output_dim: int):
-        super(Decoder, self).__init__()
-        self.linear1 = nn.Linear(latent_dim, 128)
-        self.linear2 = nn.Linear(128, output_dim)
-
-    def forward(self, z):
-        z = F.relu(self.linear1(z))
-        z = torch.sigmoid(self.linear2(z))
-        return z
-
-
-class VariationalAutoencoder(nn.Module):
-
-    def __init__(self, latent_dim: int, input_dim: int, output_dim: int):
-        super(VariationalAutoencoder, self).__init__()
-        self.encoder = VariationalEncoder(latent_dim, input_dim)
-        self.decoder = Decoder(latent_dim, output_dim)
-
-    def forward(self, x):
-        z = self.encoder(x)
-        z = self.decoder(z)
-        return z
+# class VariationalEncoder(nn.Module):
+#
+#     def __init__(self, latent_dim: int, input_dim: int):
+#         super(VariationalEncoder, self).__init__()
+#         self.linear1 = nn.Linear(input_dim, 128)
+#         self.linear_mu = nn.Linear(128, latent_dim)
+#         self.linear_sigma = nn.Linear(128, latent_dim)
+#
+#         self.N = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+#         self.kl = 0
+#
+#     def forward(self, val_data):
+#         val_data = F.relu(self.linear1(val_data))
+#         mu = self.linear_mu(val_data)
+#         log_sigma = self.linear_sigma(val_data)
+#         eps = self.N.sample(mu.shape).squeeze()
+#         z = mu + torch.exp(log_sigma / 2) * eps
+#         v = torch.exp(log_sigma) + torch.square(mu) - 1. - log_sigma
+#         self.kl = 0.5 * torch.sum(v)
+#         return z
+#
+#
+# class Decoder(nn.Module):
+#
+#     def __init__(self, latent_dim: int, output_dim: int):
+#         super(Decoder, self).__init__()
+#         self.linear1 = nn.Linear(latent_dim, 128)
+#         self.linear2 = nn.Linear(128, output_dim)
+#
+#     def forward(self, z):
+#         z = F.relu(self.linear1(z))
+#         z = torch.sigmoid(self.linear2(z))
+#         return z
+#
+#
+# class VariationalAutoencoder(nn.Module):
+#
+#     def __init__(self, latent_dim: int, input_dim: int, output_dim: int):
+#         super(VariationalAutoencoder, self).__init__()
+#         self.encoder = VariationalEncoder(latent_dim, input_dim)
+#         self.decoder = Decoder(latent_dim, output_dim)
+#
+#     def forward(self, val_data):
+#         z = self.encoder(val_data)
+#         z = self.decoder(z)
+#         return z
 
 
 class NNModelTrainer(ModelTrainer):
@@ -153,15 +153,10 @@ class NNModelTrainer(ModelTrainer):
         super().__init__()
         self.label = label
         self.num_features = 5
-        # self.model = nn.Sequential(
-        #     nn.Linear(self.num_features, 10),
-        #     nn.ReLU(),
-        #     nn.Linear(10, self.num_features),
-        # )
-        self.model = VariationalAutoencoder(
-            latent_dim=5,
-            input_dim=self.num_features,
-            output_dim=self.num_features,
+        self.model = nn.Sequential(
+            nn.Linear(self.num_features, 10),
+            nn.ReLU(),
+            nn.Linear(10, self.num_features),
         )
         self.experience_buffer = experience_buffer
         self.sample_size = sample_size
@@ -374,7 +369,7 @@ class XGBTrainer:
             self._save_training_data(dataset, columns, 'original')
 
             # try:
-            #     X, Y = correct_skewed_data(train_data.x, train_data.y, columns, 'fieryness_x')
+            #     X, Y = correct_skewed_data(train_data.val_data, train_data.y, columns, 'fieryness_x')
             # except ValueError as e:
             #     self.log.warning(f'Training terminated due to: {str(e)}')
             #     return

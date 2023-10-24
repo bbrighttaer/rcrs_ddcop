@@ -124,7 +124,7 @@ def state_to_world(data: Data) -> WorldModel:
 def state_to_dict(data: Data) -> dict:
     """Converts a PyG train_data object to python dictionary"""
     return {
-        'x': data.x.tolist(),
+        'val_data': data.x.tolist(),
         'nodes_order': data.nodes_order,
         'node_urns': data.node_urns,
     }
@@ -133,7 +133,7 @@ def state_to_dict(data: Data) -> dict:
 def dict_to_state(data: dict) -> Data:
     """Reverses a PyG train_data object to dictionary conversion"""
     return Data(
-        x=torch.tensor(data['x'], dtype=torch.float),
+        x=torch.tensor(data['val_data'], dtype=torch.float),
         nodes_order=data['nodes_order'],
         node_urns=data['node_urns'],
     )

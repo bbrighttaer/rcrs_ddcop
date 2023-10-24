@@ -124,7 +124,7 @@ def buried_humans_to_dict(humans: List[Human]) -> dict:
     for h in humans:
         data[h.get_id().get_value()] = {
             'urn': h.get_urn(),
-            'x': h.get_x(),
+            'val_data': h.get_x(),
             'y': h.get_y(),
             'damage': h.get_damage(),
             'buriedness': h.get_buriedness(),
@@ -144,7 +144,7 @@ def humans_dict_to_instances(humans_dict: dict) -> List[Human]:
             urn=props['urn'],
             id=h_id,
         )
-        entity.set_x(props['x'])
+        entity.set_x(props['val_data'])
         entity.set_y(props['y'])
         entity.set_damage(props['damage'])
         entity.set_buriedness(props['buriedness'])
