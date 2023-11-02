@@ -11,7 +11,6 @@ from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.algorithms.graph.info_sharing import NeighborInfoSharing
 from rcrs_ddcop.comm import messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
-from rcrs_ddcop.core.data import dict_to_state, world_to_state
 from rcrs_ddcop.core.enums import InfoSharingType
 from rcrs_ddcop.core.experience import ExperienceBuffer
 
@@ -21,7 +20,7 @@ class BDIAgent(object):
     Models a BDI-Agent properties
     """
 
-    def __init__(self, agent: Agent):
+    def __init__(self, agent):
         self._rcrs_agent = agent
         self.agent_id = agent.agent_id.get_value()
         self.label = f'{agent.name}_{self.agent_id}'
@@ -54,7 +53,7 @@ class BDIAgent(object):
         self._state = None
         self.selected_values = None
         self._partial_traj = []
-        self._trajectory_length = 10
+        self._trajectory_length = 100
 
         # paused messages queue
         self.paused_messages = deque()
@@ -80,12 +79,14 @@ class BDIAgent(object):
     def set_state(self, state, time_step):
         exp_keys = []
         self._state = state
-        self._partial_traj.append(state)
 
         # check and create trajectory
-        if self._partial_traj and len(self._partial_traj) % self._trajectory_length == 0:
+        if time_step % (self._trajectory_length + 1) == 0:
             exp_keys = self.experience_buffer.add(trajectory=self._partial_traj)
-            self._partial_traj = self._partial_traj[-1:]
+            self._partial_traj = [state]
+            self._rcrs_agent.reset_buildings()
+        else:
+            self._partial_traj.append(state)
         return exp_keys
 
     @property

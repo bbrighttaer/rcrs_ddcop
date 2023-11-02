@@ -274,11 +274,11 @@ pyrightconfig.json
 
 # tensorboard
 /runs_
-/runs
+*/runs
 
 *.pt
 *.json
 *.bin
 *.csv
-
+*.ipynb
 # End of https://www.toptal.com/developers/gitignore/api/pycharm+all,python,jupyternotebooks

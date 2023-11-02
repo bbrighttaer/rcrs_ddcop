@@ -87,6 +87,11 @@ class FireBrigadeAgent(Agent):
         np.random.seed(seed)
         torch.manual_seed(seed)
 
+    def reset_buildings(self):
+        for building in self.buildings_for_domain:
+            building.temperature.set_value(0)
+            building.fieryness.set_value(0)
+
     @property
     def number_of_buildings(self):
         return len(self.buildings_for_domain)
@@ -214,9 +219,9 @@ class FireBrigadeAgent(Agent):
     def think(self, time_step, change_set, heard):
         start = time.perf_counter()
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
-        if time_step < int(self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY)):
-            # self.send_subscribe(time_step, [1, 2])
-            return
+        # if time_step < int(self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY)):
+        #     # self.send_subscribe(time_step, [1, 2])
+        #     return
 
         # get visible entity_ids
         change_set_entity_ids = list(change_set.changed.keys())

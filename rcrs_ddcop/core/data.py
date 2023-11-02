@@ -74,9 +74,9 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
             node_features.append([
                 entity.get_temperature(),
                 entity.get_fieryness(),
+                b_fire_idx[entity.get_id()] if entity.get_id() in b_fire_idx else entity.get_temperature(),
                 entity.get_brokenness(),
                 entity.get_building_code(),
-                b_fire_idx[entity.get_id()] if entity.get_id() in b_fire_idx else entity.get_temperature(),
             ])
             # ] + [0.] * 3)
         # elif isinstance(entity, Human):
@@ -110,8 +110,8 @@ def state_to_world(data: Data) -> WorldModel:
         if isinstance(entity, Building):
             entity.set_temperature(int(feat[0].item()))
             entity.set_fieryness(int(feat[1].item()))
-            entity.set_brokenness(int(feat[2].item()))
-            entity.set_building_code(int(feat[3].item()))
+            entity.set_brokenness(int(feat[3].item()))
+            entity.set_building_code(int(feat[4].item()))
         # elif isinstance(entity, Human):
         #     entity.set_buriedness(round(feat[5].item()))
         #     entity.set_damage(round(feat[6].item()))
@@ -184,3 +184,57 @@ def correct_skewed_data(X, Y, columns, target_col):
     Y_ = data_sampled[:, X.shape[-1]:]
     return X_, Y_
 
+
+def series_to_supervised(data, n_in=1, n_out=1, dropnan=True):
+    """
+    Source: https://machinelearningmastery.com/convert-time-series-supervised-learning-problem-python/
+    Frame a time series as a supervised learning dataset.
+    Arguments:
+    data: Sequence of observations as a list or NumPy array.
+    n_in: Number of lag observations as input (X).
+    n_out: Number of observations as output (y).
+    dropnan: Boolean whether or not to drop rows with NaN values.
+    Returns:
+    Pandas DataFrame of series framed for supervised learning.
+    """
+    n_vars = 1 if type(data) is list else data.shape[1]
+    df = pd.DataFrame(data)
+    cols, names = list(), list()
+
+    # input sequence (t-n, ... t-1)
+    for i in range(n_in, 0, -1):
+        cols.append(df.shift(i))
+        names += [('var%d(t-%d)' % (j + 1, i)) for j in range(n_vars)]
+
+    # forecast sequence (t, t+1, ... t+n)
+    for i in range(0, n_out):
+        cols.append(df.shift(-i))
+        if i == 0:
+            names += [('var%d(t)' % (j + 1)) for j in range(n_vars)]
+        else:
+            names += [('var%d(t+%d)' % (j + 1, i)) for j in range(n_vars)]
+
+    # put it all together
+    agg = pd.concat(cols, axis=1)
+    agg.columns = names
+
+    # drop rows with NaN values
+    if dropnan:
+        agg.dropna(inplace=True)
+
+    return agg
+
+
+def trajectories_to_supervised(dataset, in_dim, past_window_size, future_window_size):
+    dataframes = []
+    for t_row in dataset:
+        t_df = series_to_supervised(t_row.reshape(-1, in_dim), n_in=past_window_size, n_out=future_window_size)
+        dataframes.append(t_df)
+    combined = pd.concat(dataframes, axis=0)
+    combined = combined.sample(frac=1.)
+    filtered_df = combined.loc[combined['var1(t-1)'] < combined['var1(t)']]
+    combined = filtered_df.values
+    new_in_dim = in_dim * past_window_size
+    X = combined[:, : new_in_dim]
+    y = combined[:, new_in_dim:]
+    return X, y
