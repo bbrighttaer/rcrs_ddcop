@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 
 from rcrs_ddcop.algorithms.dcop import DCOP
 from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
-from rcrs_ddcop.core.nn import NNModelTrainer
+from rcrs_ddcop.core.nn import NNModelTrainer, XGBTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -32,15 +32,27 @@ class LA_CoCoA(DCOP):
         self.neighbor_states = {}
         self.neighbor_values = {}
         self.cost_map = {}
-        self.num_look_ahead_steps = 0
+        self.num_look_ahead_steps = 10
+        self.past_window_size = 3
+        self.future_window_size = 1
         self._sent_inquiries_list = []
 
-        self.model_trainer = NNModelTrainer(
+        # self.model_trainer = NNModelTrainer(
+        #     label=self.label,
+        #     experience_buffer=self.agent.experience_buffer,
+        #     log=self.log,
+        #     sample_size=1000,
+        #     batch_size=128,
+        # )
+        self.model_trainer = XGBTrainer(
             label=self.label,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
-            sample_size=1000,
-            batch_size=128,
+            input_dim=5,
+            past_window_size=self.past_window_size,
+            future_window_size=self.future_window_size,
+            rounds=500,
+            trajectory_len=self.agent.trajectory_len,
         )
 
         self._time_step = 0
@@ -63,9 +75,9 @@ class LA_CoCoA(DCOP):
 
     def value_selection(self, val):
         # check for model training time step
-        # if self.model_trainer.can_train and not self.model_trainer.is_training:  # avoid multiple training calls
-        #     if self._time_step % self._training_cycle == 0:
-        #         threading.Thread(target=self.model_trainer).start()
+        if self.model_trainer.can_train and not self.model_trainer.is_training:  # avoid multiple training calls
+            if self._time_step % self._training_cycle == 0:
+                threading.Thread(target=self.model_trainer).start()
 
         # select value
         super(LA_CoCoA, self).value_selection(val)
@@ -205,8 +217,8 @@ class LA_CoCoA(DCOP):
 
     def can_resolve_agent_value(self) -> bool:
         return self.state == self.ACTIVE \
-               and self.graph.neighbors \
-               and len(self.cost_map) == len(self.graph.neighbors)
+            and self.graph.neighbors \
+            and len(self.cost_map) == len(self.graph.neighbors)
 
     def send_update_state_message(self, recipient, data):
         self.comm.send_update_state_message(recipient, data)
@@ -246,10 +258,7 @@ class LA_CoCoA(DCOP):
         self.log.info(f'Received inquiry message from {sender}')
 
         # create world-view from local belief and shared belief for reasoning
-        t1 = self.agent.belief.get_entity(EntityID(952)).get_temperature()
         context = self.get_belief()
-        t2 = context.get_entity(EntityID(952)).get_temperature()
-        self.log.debug(f'Building 952 temp: {t1} -> {t2} ------------------------')
 
         # if this agent has already set its value then keep it fixed
         iter_list = [self.value] if self.value and sender in self.graph.children else self.domain
@@ -298,28 +307,17 @@ class LA_CoCoA(DCOP):
         self.execute_dcop()
 
     def get_belief(self) -> WorldModel:
-        if self.num_look_ahead_steps > 0:  # and self.model_trainer.has_trained and self.model_trainer.normalizer:
-            model = self.model_trainer.model
+        past_states = self.agent.past_states
+        if (self.num_look_ahead_steps > 0 and len(past_states) == self.past_window_size
+                and self.model_trainer.normalizer):
+            x = [state.x.numpy() for state in past_states]
+            x = np.concatenate(x, axis=1)
+            x = self.model_trainer.look_ahead_prediction(x, self.num_look_ahead_steps)
+
+            # get copy of current belief and update entities with predicted states
             belief = world_to_state(self.agent.belief)
-
-            # normalize
-            data = belief.x.numpy()
-            data[:, 1:] = 0.  # zero-out all column except temperature
-            x = self.model_trainer.normalizer.transform(data)
-
-            # predict next state
-            x_tensor = torch.tensor(x).float()
-            with torch.no_grad():
-                for i in range(self.num_look_ahead_steps):
-                    x_tensor = model(x_tensor)
-            output = x_tensor.detach().numpy()
-
-            # revert normalization
-            x = self.model_trainer.normalizer.inverse_transform(output)
-            x = np.clip(x, a_min=0., a_max=None)
-            x[:, 1:] = belief.x.numpy()[:, 1:]  # restore values of other features
-            x = belief.x.numpy()
-            belief.x = torch.from_numpy(x).float()
+            x = torch.from_numpy(x)
+            belief.x = x
 
             return state_to_world(belief)
         else:

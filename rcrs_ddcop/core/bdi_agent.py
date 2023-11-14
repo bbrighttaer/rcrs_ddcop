@@ -38,6 +38,7 @@ class BDIAgent(object):
         self._timeout = 3.5
         self.look_ahead_tuples = None
         self.all_agents_selected_vals = {}
+        self.past_states = deque(maxlen=3)
 
         self._decision_timeout_count = 0
 
@@ -53,16 +54,18 @@ class BDIAgent(object):
         self._state = None
         self.selected_values = None
         self._partial_traj = []
-        self._trajectory_length = 100
+        self.trajectory_len = self._rcrs_agent.trajectory_len
 
         # paused messages queue
         self.paused_messages = deque()
 
         # create instances of main components
         self.comm = AgentPseudoComm(self)
-        self.graph = DIGCA(self, timeout=3.5, max_num_of_neighbors=5)
+        self.graph = DIGCA(self, timeout=3.5, max_num_of_neighbors=3)
         self.info_share = NeighborInfoSharing(self)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
+
+        self.log.info('Ready...')
 
     @property
     def domain(self):
@@ -79,14 +82,15 @@ class BDIAgent(object):
     def set_state(self, state, time_step):
         exp_keys = []
         self._state = state
+        self.past_states.append(state)
+        self._partial_traj.append(state)
 
         # check and create trajectory
-        if time_step % (self._trajectory_length + 1) == 0:
+        if time_step % self.trajectory_len == 0:
             exp_keys = self.experience_buffer.add(trajectory=self._partial_traj)
-            self._partial_traj = [state]
-            self._rcrs_agent.reset_buildings()
-        else:
-            self._partial_traj.append(state)
+            self._partial_traj = []
+            self.past_states.clear()
+            self.past_states.append(state)
         return exp_keys
 
     @property
@@ -201,7 +205,9 @@ class BDIAgent(object):
             f'children={self.graph.children}, '
             f'pseudo-children={self.graph.pseudo_children}, '
             f'agents-in-range={self.agents_in_comm_range}, '
-            f'domain={self.domain}'
+            f'domain={self.domain}, '
+            f'potential children={self.graph.get_potential_children()}, '
+            f'potential parents={self.graph.get_potential_parents()}'
         )
 
         # if no neighborhood change

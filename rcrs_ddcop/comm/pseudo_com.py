@@ -119,11 +119,12 @@ class AgentPseudoComm(object):
             })
         )
 
-    def send_announce_response(self, agent_id):
+    def send_announce_response(self, agent_id, num_of_children):
         self._send_to_agent(
             agent_id=agent_id,
             body=messaging.create_announce_response_message({
                 'agent_id': self.agent_id,
+                'num_of_children': num_of_children,
             })
         )
 

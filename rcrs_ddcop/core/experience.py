@@ -45,9 +45,9 @@ class ExperienceBuffer:
             self.merge_experiences(x, keys)
 
         # for debugging
-        if len(self) > 10:
-            data = self.sample(len(self))
-            np.savetxt(f'{self.lbl}.csv', np.array(data), delimiter=',')
+        # if len(self) > 10:
+        #     data = self.sample(len(self))
+        #     np.savetxt(f'{self.lbl}.csv', np.array(data), delimiter=',')
 
         return keys
 

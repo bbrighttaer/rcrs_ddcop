@@ -36,7 +36,7 @@ class DynaGraph:
 
     @property
     def num_of_neighbors(self):
-        return len(self.children) + 1 if self.parent else 0
+        return len(self.children) + (1 if self.parent else 0)
 
     @property
     def neighbors(self):

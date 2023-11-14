@@ -18,6 +18,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 from xgboost.callback import TrainingCallback, _Model, EarlyStopping
 
+from rcrs_ddcop.core.data import trajectories_to_supervised
 from rcrs_ddcop.core.experience import ExperienceBuffer
 
 
@@ -298,43 +299,48 @@ class XGBTrainer:
     Trains an XGBoost model
     """
 
-    def __init__(self, label: str, experience_buffer: ExperienceBuffer, log: Logger,
-                 transform=None, rounds: int = 100):
+    def __init__(self, label: str, experience_buffer: ExperienceBuffer, log: Logger, input_dim: int,
+                 past_window_size: int, future_window_size: int, trajectory_len, rounds: int = 100):
+        self.trajectory_len = trajectory_len
         self.label = label
+        self.input_dim = input_dim
+        self.past_window_size = past_window_size
+        self.future_window_size = future_window_size
         self.params = {
             'objective': 'reg:squarederror',
             'max_depth': 10,
             'learning_rate': 1e-3,
             'tree_method': 'hist',
             'n_jobs': 16,
-            'multi_strategy': 'multi_output_tree'
+            # 'multi_strategy': 'multi_output_tree'
             # 'reg_lambda': 1e-5,
         }
         self.experience_buffer = experience_buffer
         self.log = log
         self.writer = SummaryWriter()
         self.count = 0
-        self.normalizer = transform
+        self.normalizer = None
         self.best_model_config = None
         self.best_score = float('-inf')
         self._model = None
         self._rounds = rounds
         self.is_training = False
+        self.has_trained = False
+        self.can_train = True
         self.batch_sz = 700
 
-        # self.load_model()
+        self.load_model()
 
     @property
     def model(self):
         return self._model
 
     def load_model(self):
+        self.can_train = False
+        self.has_trained = True
         self._model = xgb.Booster()
-        model_file_name = f'{self.label}_model_static.json'
-        scaler_file_name = f'{self.label}_scaler_static.bin'
-        # if 'FireBrigade' in self.label:
-        #     model_file_name = 'FireBrigadeAgent_210552869_model.json'
-        #     scaler_file_name = 'FireBrigadeAgent_210552869_scaler.bin'
+        model_file_name = f'FireBrigadeAgent_1203656453_model.json'
+        scaler_file_name = f'FireBrigadeAgent_1203656453_scaler.bin'
         self._model.load_model(model_file_name)
         self.normalizer = joblib.load(scaler_file_name)
         self.log.info('Model loaded successfully')
@@ -351,43 +357,34 @@ class XGBTrainer:
     def __call__(self, *args, **kwargs):
         """Trains the prediction model"""
         # ensure there is enough train_data to sample from
-        if len(self.experience_buffer) < 10:
+        if len(self.experience_buffer) < 100:
             return
 
         with self:
             self.log.debug('Training initiated...')
 
-            columns = [
-                'fieryness_x', 'temperature_x', 'brokenness_x', 'building_code_x', 'fire_index_x',
-                'fieryness_y', 'temperature_y', 'brokenness_y', 'building_code_y', 'fire_index_y',
-            ]
-
             # start training block
             dataset = self.experience_buffer.sample(self.batch_sz)
             dataset = np.array(dataset)
 
-            self._save_training_data(dataset, columns, 'original')
-
-            # try:
-            #     X, Y = correct_skewed_data(train_data.val_data, train_data.y, columns, 'fieryness_x')
-            # except ValueError as e:
-            #     self.log.warning(f'Training terminated due to: {str(e)}')
-            #     return
-            X, Y = dataset[:, :5], dataset[:, 5:]
-
-            # normalize train_data to zero mean, unit variance
-            self.normalizer.fit(np.concatenate([X, Y], axis=0))
-            X = self.normalizer.transform(X)
-            Y = self.normalizer.transform(Y)
-            # wts = np.array([1. if 3 > e > 0 else 0.2 for e in train_data.y[:, 0]])
-
-            X_train, X_val, y_train, y_val = train_test_split(X, Y, test_size=0.2, shuffle=True)
+            # preprocess dataset
+            normalizer = StandardScaler()
+            dataset = dataset.reshape(-1, 5)[:, :self.input_dim]
+            dataset = normalizer.fit_transform(dataset)
+            dataset = dataset.reshape(-1, self.input_dim * self.trajectory_len)
+            X, y = trajectories_to_supervised(
+                dataset=dataset,
+                in_dim=self.input_dim,
+                past_window_size=self.past_window_size,
+                future_window_size=self.future_window_size,
+            )
+            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, shuffle=True)
 
             # put train_data into xgb matrix
-            dtrain = xgb.DMatrix(data=X_train, label=y_train[:, :-1])
-            dval = xgb.DMatrix(data=X_val, label=y_val[:, :-1])
+            dtrain = xgb.DMatrix(data=X_train, label=y_train)
+            dval = xgb.DMatrix(data=X_val, label=y_val)
 
-            # train model
+            # model training
             model = xgb.train(
                 params=self.params,
                 dtrain=dtrain,
@@ -396,7 +393,7 @@ class XGBTrainer:
                 callbacks=[
                     ModelCheckpointCallback(self),
                     EarlyStopping(
-                        rounds=5,
+                        rounds=100,
                         metric_name='rmse',
                         data_name='val',
                     )
@@ -409,10 +406,32 @@ class XGBTrainer:
             if self.best_model_config:
                 model.load_config(self.best_model_config)
                 self._model = model
+                self.normalizer = normalizer
                 model.save_model(f'{self.label}_model.json')
                 joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
 
+            self.has_trained = True
+
         return self.best_score
+
+    def predict_xg_boost(self, x):
+        x = self.normalizer.transform(x.reshape(-1, self.input_dim))
+        x = x.reshape(-1, self.input_dim * self.past_window_size)
+        output = self._model.predict(xgb.DMatrix(x))
+        output = self.normalizer.inverse_transform(output)
+        return output
+
+    def look_ahead_prediction(self, x, steps):
+        """
+        Implements recursive multistep forecast.
+        :param x: initial data
+        :param steps: number of forecast steps
+        :return: predicted states
+        """
+        for i in range(steps):
+            x_new = self.predict_xg_boost(x)
+            x = np.concatenate([x[:, self.input_dim:], x_new], axis=1)
+        return x
 
 
 class ModelCheckpointCallback(TrainingCallback):

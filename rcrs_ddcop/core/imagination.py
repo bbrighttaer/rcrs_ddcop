@@ -178,7 +178,6 @@ class ImaginationModel:
             past_window_size=3,
             future_window_size=1,
         )
-        y = y.reshape(-1, self.input_dim)[:, 0].reshape(-1, 1)
 
 
         params = {
@@ -457,18 +456,18 @@ class ImaginationModel:
         self.normalizer = joblib.load(scaler_file_name)
         print('xgboost models load')
 
-    def predict_xg_boost(self, x, future_step):
+    def predict_xg_boost(self, x):
         self.load_xgb_model()
         dim = len(x)
         x = self.normalizer.transform(x.reshape(-1, self.input_dim))
         x = x.reshape(-1, dim)
         output = self.xgb_model.predict(xgb.DMatrix(x))
-        output = output.repeat(3)
-        output = self.normalizer.inverse_transform(output.reshape(-1, self.input_dim))
-        output = output.reshape(-1, 3)[:, 0]
-        output = output.reshape(1, -1)
+        # output = output.repeat(3)
+        # output = self.normalizer.inverse_transform(output.reshape(-1, self.input_dim))
+        output = self.normalizer.inverse_transform(output)
+        # output = output.reshape(-1, 3)[:, 0]
+        # output = output.reshape(1, -1)
         return output
-
 
     @torch.no_grad()
     def predict(self, x, steps) -> np.array:
@@ -589,12 +588,12 @@ def train(lr=0.001, weight_decay=0.):
     torch.manual_seed(seed)
     traj_len = 100
     batch_size = 128
-    input_dim = 3
+    input_dim = 5
     latent_dim = 256
     obs_encoding_dim = 256
     num_epochs = 300
     gamma = 0.1
-    mode = 'train'
+    mode = 'eval'
 
     # load data
     traj_data = np.loadtxt('../../FireBrigadeAgent_210552869.csv', delimiter=',', dtype=float)
@@ -626,13 +625,16 @@ def train(lr=0.001, weight_decay=0.):
     else:
         # model.load_fcn_models()
         # x = traj_data[0, :5].reshape(1, -1)
-        x = np.array([278.,   2., 747., 282.,   2., 751., 285.,   2., 745., 289.,   2.,
-       752.])
-        # print(f'x = {x}')
-        x_new = model.predict_xg_boost(x[:9], 2)
-        x = x.reshape(-1, 3)[:, 0].reshape(1, -1)
-        print(x.shape)
-        print(f'current = {x.squeeze().tolist()}, imagined = {x_new.squeeze().tolist()}')
+        x_obs = np.array([  0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   0.,   2.,
+         0., 328.,   0.,   0.,   4.,   0., 399.,   0.,   0.])
+        print(f'x_obs={x_obs}')
+        x = x_obs[:15]
+        for i in range(10):
+            x_new = model.predict_xg_boost(x)
+            x = np.concatenate([x[5:], x_new.ravel()])
+            print(f'new x: {x}')
+        # x = x.reshape(-1, 3)[:, 0].reshape(1, -1)
+        print(f'predicted = {x_new.squeeze().tolist()}')
 
 
 if __name__ == '__main__':

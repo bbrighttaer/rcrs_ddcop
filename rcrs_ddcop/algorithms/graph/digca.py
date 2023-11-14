@@ -3,6 +3,8 @@ import random
 import time
 from collections import deque
 
+import numpy as np
+
 from rcrs_ddcop.algorithms.graph import DynaGraph
 from rcrs_ddcop.core.enums import DynamicGraphCallback
 
@@ -41,7 +43,7 @@ class DIGCA(DynaGraph):
         self.exec_started = False
 
     def connect(self):
-        new_agents = self._get_potential_parents()
+        new_agents = self.get_potential_parents()
         broadcast_list = set(new_agents) - set(self._sent_announce_msg_list)
         if broadcast_list \
                 and not self.parent \
@@ -82,14 +84,29 @@ class DIGCA(DynaGraph):
         self.log.debug(f'AnnounceResponse list in connect: {self.announceResponseList}')
         # select agent to connect to
         selected_agent = None
+        agts = []
+        p_list = []
+
         if self.announceResponseList:
-            selected_agent = random.choice(self.announceResponseList)
+            factors = []
+            for a in self.announceResponseList:
+                num_neighbors = a[1]
+                if num_neighbors < self._max_num_neighbors:
+                    agts.append(a[0])
+                    factors.append(num_neighbors)
+                else:
+                    p_list.append(a[0])
+            factors = (np.max(factors) - np.array(factors)) + 1e-10
+            probs = factors / np.sum(factors)
+            selected_agent = np.random.choice(agts, p=probs)
+
         if selected_agent is not None:
             self.log.debug(f'Selected agent for AddMe: {selected_agent}')
             self.comm.send_add_me_message(selected_agent, domain=self.agent.domain)
             self.state = State.ACTIVE
+
         # send announce response ignored messages
-        for a in set(self.announceResponseList):
+        for a in set(agts + p_list):
             if a != selected_agent:
                 self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
         self.announceResponseList.clear()
@@ -102,19 +119,19 @@ class DIGCA(DynaGraph):
         #         and self.agent.agent_id < sender \
         #         and (self._max_num_neighbors >= self.num_of_neighbors
         #              or self._max_num_neighbors == -1):
-        if self.agent.agent_id < sender \
-                and (self._max_num_neighbors >= self.num_of_neighbors or self._max_num_neighbors == -1):
-            self.comm.send_announce_response(sender)
+        if self.agent.agent_id < sender:
+            self.comm.send_announce_response(sender, len(self.children))
 
     def receive_announce_response(self, message):
         self.log.debug(f'Received announce response: {message}')
         sender = message['payload']['agent_id']
+        num_of_children = message['payload']['num_of_children']
 
         if sender not in self.announceResponseList:
-            self.announceResponseList.append(sender)
+            self.announceResponseList.append([sender, num_of_children])
             self.log.debug(f'AnnounceResponse list: {self.announceResponseList}')
             self.log.debug(f'response list check, {self.announceResponseList}, {self._sent_announce_msg_list}')
-            if len(set(self._sent_announce_msg_list) - set(self.announceResponseList)) == 0:
+            if len(set(self._sent_announce_msg_list) - set([a[0] for a in self.announceResponseList])) == 0:
                 self.send_connection_requests()
 
     def receive_add_me(self, message):
@@ -255,12 +272,12 @@ class DIGCA(DynaGraph):
         self._parent_already_assigned_msgs[sender] = message
         self.log.debug(f'Received parent already assigned message from {sender}')
 
-        if len(self._parent_already_assigned_msgs.keys()) == len(self._get_potential_children()) \
+        if len(self._parent_already_assigned_msgs.keys()) == len(self.get_potential_children()) \
                 and not self.agent.value:
             self._has_sent_parent_available = True
             self.start_dcop()
 
-    def _get_potential_children(self):
+    def get_potential_children(self):
         agents = []
         for _agt in self.agent.new_agents:
             if _agt > self.agent.agent_id:
@@ -268,7 +285,7 @@ class DIGCA(DynaGraph):
 
         return agents
 
-    def _get_potential_parents(self):
+    def get_potential_parents(self):
         agents = []
         for _agt in self.agent.new_agents:
             if _agt < self.agent.agent_id:
@@ -284,7 +301,7 @@ class DIGCA(DynaGraph):
         return False
 
     def has_potential_child(self):
-        return bool(self._get_potential_children())
+        return bool(self.get_potential_children())
 
     def has_potential_neighbor(self):
         return self.has_potential_child() or (not self.parent and self.has_potential_parent())

@@ -66,27 +66,16 @@ def world_to_state(world_model: WorldModel, entity_ids: Iterable[int] = None, ed
     node_features = []
     nodes_order = []
     node_urns = []
-    for e_id in state_entities:
-        entity = world_model.get_entity(e_id)
-        nodes_order.append(e_id.get_value())
+    for entity in buildings:
+        nodes_order.append(entity.get_id().get_value())
         node_urns.append(entity.get_urn().value)
-        if isinstance(entity, Building):
-            node_features.append([
-                entity.get_temperature(),
-                entity.get_fieryness(),
-                b_fire_idx[entity.get_id()] if entity.get_id() in b_fire_idx else entity.get_temperature(),
-                entity.get_brokenness(),
-                entity.get_building_code(),
-            ])
-            # ] + [0.] * 3)
-        # elif isinstance(entity, Human):
-        #     node_features.append([0.] * 5 + [
-        #         entity.get_buriedness(),
-        #         entity.get_damage(),
-        #         entity.get_hp(),
-        #     ])
-        else:
-            node_features.append([0.] * 5)
+        node_features.append([
+            entity.get_temperature(),
+            entity.get_fieryness(),
+            b_fire_idx[entity.get_id()] if entity.get_id() in b_fire_idx else entity.get_temperature(),
+            entity.get_brokenness(),
+            entity.get_building_code(),
+        ])
 
     node_feat_arr = torch.tensor(node_features, dtype=torch.float)
     data = Data(
@@ -232,6 +221,7 @@ def trajectories_to_supervised(dataset, in_dim, past_window_size, future_window_
         dataframes.append(t_df)
     combined = pd.concat(dataframes, axis=0)
     combined = combined.sample(frac=1.)
+    # ensure temperature of time t is greater than temperature of t-1 (filtering)
     filtered_df = combined.loc[combined['var1(t-1)'] < combined['var1(t)']]
     combined = filtered_df.values
     new_in_dim = in_dim * past_window_size

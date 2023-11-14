@@ -34,14 +34,14 @@ from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_agen
     create_update_look_ahead_tuples
 from rcrs_ddcop.utils.logger import Logger
 
-WATER_OUT = 800
+WATER_OUT = 1000
 CONTINUOUS_DECISION_LIMIT = 2
 SEARCH_ID = -1
 TRAVEL_DISTANCE = 30000
 MAX_TEMPERATURE = 1000
 COORDINATION_MAX_PENALTY = 20
 DENSITY_MAX_PENALTY = 20
-MAX_AGENT_DENSITY = 4
+MAX_AGENT_DENSITY = 3
 EPSILON = eps = 1e-20
 VALUE_CHANGE_COST = 10
 CRITICAL_TEMPERATURE_THRESHOLD = 300
@@ -59,6 +59,7 @@ def check_rescue_task(targets: List[Entity]) -> bool:
 class FireBrigadeAgent(Agent):
     def __init__(self, pre):
         Agent.__init__(self, pre)
+        self.trajectory_len = 100
         self.current_time_step = 0
         self.name = 'FireBrigadeAgent'
         self.bdi_agent = None
@@ -291,6 +292,10 @@ class FireBrigadeAgent(Agent):
         self.bdi_agent.record_deliberation_time(time_step, time_taken)
         self.Log.debug(f'Deliberation time = {time_taken}')
 
+        # reset building information at the end of every trajectory
+        if time_step % self.trajectory_len == 0:
+            self.reset_buildings()
+
     def deliberate(self, state, time_step):
         # execute thinking process
         agent_value, score = self.bdi_agent.deliberate(time_step)
@@ -401,6 +406,12 @@ class FireBrigadeAgent(Agent):
         :param selected_value: value for evaluation
         :return: cost
         """
+        num_neighbors = list(self.bdi_agent.graph.all_neighbors)
+        num_assigned = sum([v == selected_value for v in list(self.bdi_agent.dcop.neighbor_values.values())])
+
+        if num_assigned > 2:
+            return 10000.
+
         if selected_value == SEARCH_ID:
             return 0.
 
@@ -515,13 +526,13 @@ class FireBrigadeAgent(Agent):
             'fieriness_3': fire_3,
             'temperature_3': temp_3,
         })
-        file_name = f'{self.name}_{self.get_id().get_value()}.csv'
-        # look_ahead_history_df.to_csv(
-        #     file_name,
-        #     mode='a',
-        #     index=False,
-        #     header=not os.path.exists(file_name),
-        # )
+        file_name = f'{self.name}_{self.get_id().get_value()}_predictions.csv'
+        look_ahead_history_df.to_csv(
+            file_name,
+            mode='a',
+            index=False,
+            header=not os.path.exists(file_name),
+        )
 
     def select_search_target(self) -> Entity | None:
         """
