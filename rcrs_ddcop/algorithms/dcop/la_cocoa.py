@@ -1,15 +1,13 @@
-import random
 import threading
 
 import numpy as np
 import torch
-from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
-from sklearn.preprocessing import StandardScaler
+from torch_geometric.data import Data
 
 from rcrs_ddcop.algorithms.dcop import DCOP
-from rcrs_ddcop.core.data import state_to_dict, dict_to_state, world_to_state, state_to_world
-from rcrs_ddcop.core.nn import NNModelTrainer, XGBTrainer
+from rcrs_ddcop.core.data import world_to_state, state_to_world, merge_beliefs
+from rcrs_ddcop.core.nn import XGBTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -315,11 +313,17 @@ class LA_CoCoA(DCOP):
             x = self.model_trainer.look_ahead_prediction(x, self.num_look_ahead_steps)
 
             # get copy of current belief and update entities with predicted states
-            belief = world_to_state(self.agent.belief)
+            state = world_to_state(self.agent.belief)
+            belief = state_to_world(state)
             x = torch.from_numpy(x)
-            belief.x = x
-
-            return state_to_world(belief)
+            predicted_state = Data(
+                x=x,
+                nodes_order=state.nodes_order,
+                node_urns=state.node_urns,
+            )
+            predicted_world = state_to_world(predicted_state)
+            belief = merge_beliefs(belief, predicted_world)
+            return belief
         else:
             return self.agent.belief
 

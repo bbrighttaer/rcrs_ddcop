@@ -228,3 +228,18 @@ def trajectories_to_supervised(dataset, in_dim, past_window_size, future_window_
     X = combined[:, : new_in_dim]
     y = combined[:, new_in_dim:]
     return X, y
+
+
+def merge_beliefs(actual_belief: WorldModel, predicted_belief: WorldModel):
+    """
+    Merge the predicted properties into the actual belief if condition is met.
+    :param actual_belief:
+    :param predicted_belief:
+    :return: the updated belief
+    """
+    for entity in actual_belief.get_entities():
+        if entity.urn == Building.urn:
+            if 0 < entity.get_temperature() < 600:
+                new_temp = predicted_belief.get_entity(entity.get_id()).get_temperature()
+                entity.set_temperature(new_temp)
+    return actual_belief
