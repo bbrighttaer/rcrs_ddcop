@@ -329,7 +329,7 @@ class XGBTrainer:
         self.can_train = True
         self.batch_sz = 700
 
-        # self.load_model()
+        self.load_model()
 
     @property
     def model(self):
@@ -339,8 +339,8 @@ class XGBTrainer:
         self.can_train = False
         self.has_trained = True
         self._model = xgb.Booster()
-        model_file_name = f'FireBrigadeAgent_1203656453_model.json'
-        scaler_file_name = f'FireBrigadeAgent_1203656453_scaler.bin'
+        model_file_name = f'reference_models/FireBrigadeAgent_410064826_model.json'
+        scaler_file_name = f'reference_models/FireBrigadeAgent_410064826_scaler.bin'
         self._model.load_model(model_file_name)
         self.normalizer = joblib.load(scaler_file_name)
         self.log.info('Model loaded successfully')

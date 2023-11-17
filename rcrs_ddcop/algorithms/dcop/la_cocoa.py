@@ -1,13 +1,6 @@
-import threading
-
 import numpy as np
-import torch
-from rcrs_core.worldmodel.worldmodel import WorldModel
-from torch_geometric.data import Data
 
 from rcrs_ddcop.algorithms.dcop import DCOP
-from rcrs_ddcop.core.data import world_to_state, state_to_world, merge_beliefs
-from rcrs_ddcop.core.nn import XGBTrainer
 
 
 class LA_CoCoA(DCOP):
@@ -27,58 +20,16 @@ class LA_CoCoA(DCOP):
         self._started = False
         self._can_start = False
         self.state = self.IDLE
-        self.neighbor_states = {}
-        self.neighbor_values = {}
         self.cost_map = {}
-        self.num_look_ahead_steps = 10
-        self.past_window_size = 3
-        self.future_window_size = 1
         self._sent_inquiries_list = []
 
-        # self.model_trainer = NNModelTrainer(
-        #     label=self.label,
-        #     experience_buffer=self.agent.experience_buffer,
-        #     log=self.log,
-        #     sample_size=1000,
-        #     batch_size=128,
-        # )
-        self.model_trainer = XGBTrainer(
-            label=self.label,
-            experience_buffer=self.agent.experience_buffer,
-            log=self.log,
-            input_dim=5,
-            past_window_size=self.past_window_size,
-            future_window_size=self.future_window_size,
-            rounds=500,
-            trajectory_len=self.agent.trajectory_len,
-        )
-
-        self._time_step = 0
-        self._training_cycle = 5
-
-    def record_agent_metric(self, name, t, value):
-        self.model_trainer.write_to_tf_board(name, t, value)
-
     def on_time_step_changed(self):
-        self.cost = None
+        super().on_time_step_changed()
         self._can_start = False
         self._started = False
         self.state = self.IDLE
         self.cost_map.clear()
-        self.value = None
-        self.neighbor_states.clear()
-        self.neighbor_values.clear()
-        self._time_step += 1
         self._sent_inquiries_list.clear()
-
-    def value_selection(self, val):
-        # check for model training time step
-        if self.model_trainer.can_train and not self.model_trainer.is_training:  # avoid multiple training calls
-            if self._time_step % self._training_cycle == 0:
-                threading.Thread(target=self.model_trainer).start()
-
-        # select value
-        super(LA_CoCoA, self).value_selection(val)
 
     def execute_dcop(self):
         self.log.info('Initiating CoCoA')
@@ -263,9 +214,6 @@ class LA_CoCoA(DCOP):
 
         util_matrix = np.zeros((len(iter_list), len(sender_domain)))
 
-        # compile list of values already picked by self and neighbors
-        neighbor_vals = list(self.neighbor_values.values())
-
         for i, value_i in enumerate(iter_list):
             for j, value_j in enumerate(sender_domain):
                 agent_values = {
@@ -303,29 +251,6 @@ class LA_CoCoA(DCOP):
     def receive_execution_request_message(self, payload):
         self.log.info(f'Received execution request: {payload}, state = {self.state}')
         self.execute_dcop()
-
-    def get_belief(self) -> WorldModel:
-        past_states = self.agent.past_states
-        if (self.num_look_ahead_steps > 0 and len(past_states) == self.past_window_size
-                and self.model_trainer.normalizer):
-            x = [state.x.numpy() for state in past_states]
-            x = np.concatenate(x, axis=1)
-            x = self.model_trainer.look_ahead_prediction(x, self.num_look_ahead_steps)
-
-            # get copy of current belief and update entities with predicted states
-            state = world_to_state(self.agent.belief)
-            belief = state_to_world(state)
-            x = torch.from_numpy(x)
-            predicted_state = Data(
-                x=x,
-                nodes_order=state.nodes_order,
-                node_urns=state.node_urns,
-            )
-            predicted_world = state_to_world(predicted_state)
-            belief = merge_beliefs(belief, predicted_world)
-            return belief
-        else:
-            return self.agent.belief
 
     def __str__(self):
         return 'CoCoA'

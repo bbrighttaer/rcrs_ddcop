@@ -7,6 +7,7 @@ import numpy as np
 from rcrs_core.agents.agent import Agent
 
 from rcrs_ddcop.algorithms.dcop.la_cocoa import LA_CoCoA
+from rcrs_ddcop.algorithms.dcop.la_dpop import LA_DPOP
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.algorithms.graph.info_sharing import NeighborInfoSharing
 from rcrs_ddcop.comm import messaging
@@ -63,7 +64,7 @@ class BDIAgent(object):
         self.comm = AgentPseudoComm(self)
         self.graph = DIGCA(self, timeout=3.5, max_num_of_neighbors=3)
         self.info_share = NeighborInfoSharing(self)
-        self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
+        self.dcop = LA_DPOP(self, self.on_value_selected, label=self.label)
 
         self.log.info('Ready...')
 

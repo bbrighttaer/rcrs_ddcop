@@ -1,7 +1,14 @@
 import random
+import threading
 from typing import Callable
 
 import numpy as np
+import torch
+from rcrs_core.worldmodel.worldmodel import WorldModel
+from torch_geometric.data import Data
+
+from rcrs_ddcop.core.data import world_to_state, state_to_world, merge_beliefs
+from rcrs_ddcop.core.nn import XGBTrainer
 
 
 class DCOP:
@@ -27,6 +34,25 @@ class DCOP:
             self.op = np.min
             self.arg_op = np.argmin
 
+        self.neighbor_states = {}
+        self.neighbor_values = {}
+
+        self.num_look_ahead_steps = 10
+        self.past_window_size = 3
+        self.future_window_size = 1
+        self.model_trainer = XGBTrainer(
+            label=self.label,
+            experience_buffer=self.agent.experience_buffer,
+            log=self.log,
+            input_dim=5,
+            past_window_size=self.past_window_size,
+            future_window_size=self.future_window_size,
+            rounds=500,
+            trajectory_len=self.agent.trajectory_len,
+        )
+        self.time_step = 0
+        self.training_cycle = 5
+
     @property
     def domain(self):
         return self.agent.domain
@@ -47,11 +73,48 @@ class DCOP:
         self.value_selection(self.value)
 
     def value_selection(self, val):
+        # check for model training time step
+        if self.model_trainer.can_train and not self.model_trainer.is_training:  # avoid multiple training calls
+            if self.time_step % self.training_cycle == 0:
+                threading.Thread(target=self.model_trainer).start()
         self._on_value_selected_cb(val, cost=self.cost)
         self.on_state_value_selection(self.agent.agent_id, val)
 
     def on_state_value_selection(self, agent, value):
         self.agent.on_state_value_selection(agent, value)
+
+    def record_agent_metric(self, name, t, value):
+        self.model_trainer.write_to_tf_board(name, t, value)
+
+    def get_belief(self) -> WorldModel:
+        past_states = self.agent.past_states
+        if (self.num_look_ahead_steps > 0 and len(past_states) == self.past_window_size
+                and self.model_trainer.normalizer):
+            x = [state.x.numpy() for state in past_states]
+            x = np.concatenate(x, axis=1)
+            x = self.model_trainer.look_ahead_prediction(x, self.num_look_ahead_steps)
+
+            # get copy of current belief and update entities with predicted states
+            state = world_to_state(self.agent.belief)
+            belief = state_to_world(state)
+            x = torch.from_numpy(x)
+            predicted_state = Data(
+                x=x,
+                nodes_order=state.nodes_order,
+                node_urns=state.node_urns,
+            )
+            predicted_world = state_to_world(predicted_state)
+            belief = merge_beliefs(belief, predicted_world)
+            return belief
+        else:
+            return self.agent.belief
+
+    def on_time_step_changed(self):
+        self.value = None
+        self.cost = None
+        self.neighbor_states.clear()
+        self.neighbor_values.clear()
+        self.time_step += 1
 
     # ---------------- Algorithm specific methods ----------------------- #
 
@@ -92,9 +155,6 @@ class DCOP:
         Implement this method to determine the agent's value.
         """
         pass
-
-    def on_time_step_changed(self):
-        ...
 
     def __str__(self):
         return 'dcop'
