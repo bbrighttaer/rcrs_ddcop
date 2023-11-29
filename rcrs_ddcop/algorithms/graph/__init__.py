@@ -53,6 +53,19 @@ class DynaGraph:
         """considers parent, children, pseudo-parents, and pseudo-children"""
         return self.get_connected_agents()
 
+    @property
+    def all_parents(self):
+        """parent and pseudo-parents"""
+        parents = list(self.pseudo_parents)
+        if self.parent:
+            parents.append(self.parent)
+        return parents
+
+    @property
+    def all_children(self):
+        """true and pseudo-children"""
+        return list(self.children) + list(self.pseudo_children)
+
     def start_dcop(self, timeout=False):
         if timeout or self.can_start_dcop():
             self.log.info(f'Starting DCOP...')

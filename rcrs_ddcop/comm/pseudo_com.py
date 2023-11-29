@@ -283,3 +283,12 @@ class AgentPseudoComm(object):
             }),
         )
 
+    def send_separator_message(self, agent_id, **kwargs):
+        self._send_to_agent(
+            agent_id=agent_id,
+            body=messaging.create_separator_message({
+                'agent_id': self.agent_id,
+                **kwargs,
+            })
+        )
+

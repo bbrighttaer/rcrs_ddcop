@@ -165,9 +165,13 @@ class LA_CoCoA(DCOP):
         self.select_value()
 
     def can_resolve_agent_value(self) -> bool:
-        return self.state == self.ACTIVE \
-            and self.graph.neighbors \
-            and len(self.cost_map) == len(self.graph.neighbors)
+        all_neighbors_connected = not self.agent.new_agents
+        return (
+                all_neighbors_connected and
+                self.state == self.ACTIVE and
+                self.graph.neighbors and
+                len(self.cost_map) == len(self.graph.neighbors)
+        )
 
     def send_update_state_message(self, recipient, data):
         self.comm.send_update_state_message(recipient, data)

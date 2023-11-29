@@ -37,7 +37,7 @@ class DCOP:
         self.neighbor_states = {}
         self.neighbor_values = {}
 
-        self.num_look_ahead_steps = 10
+        self.num_look_ahead_steps = 0
         self.past_window_size = 3
         self.future_window_size = 1
         self.model_trainer = XGBTrainer(
@@ -65,6 +65,7 @@ class DCOP:
         Resolves an agent's value.
         """
         if self.can_resolve_agent_value():
+            self.log.debug('Resolving value...')
             self.select_value()
 
     def select_random_value(self):

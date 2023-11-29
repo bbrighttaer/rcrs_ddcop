@@ -20,6 +20,7 @@ class DIGCAMsgTypes(StrEnum):
     PARENT_ASSIGNED = auto()
     PARENT_ALREADY_ASSIGNED = auto()
     PSEUDO_CHILD_ADDED = auto()
+    SEPARATOR = auto()
 
 
 class InfoSharing(StrEnum):
@@ -93,6 +94,10 @@ def create_parent_assigned_message(data):
 
 def create_parent_already_assigned_message(data):
     return _create_msg(DIGCAMsgTypes.PARENT_ALREADY_ASSIGNED, data)
+
+
+def create_separator_message(data):
+    return _create_msg(DIGCAMsgTypes.SEPARATOR, data)
 
 
 def create_request_util_message(data):

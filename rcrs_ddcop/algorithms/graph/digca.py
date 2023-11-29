@@ -1,7 +1,7 @@
 import enum
-import random
 import time
 from collections import deque
+from functools import partial
 
 import numpy as np
 
@@ -27,6 +27,7 @@ class DIGCA(DynaGraph):
         self.pinged_list_dict = {}
         self.state = State.INACTIVE
         self.announceResponseList = deque()
+        self.separator = deque()
         self._pseudo_parent_request_mgs = {}
         self._parent_already_assigned_msgs = {}
         self._timeout_delay_in_seconds = timeout
@@ -35,6 +36,7 @@ class DIGCA(DynaGraph):
         self._max_num_neighbors = max_num_of_neighbors
 
     def on_time_step_changed(self):
+        self.log.debug(f'Vars separator: {self.separator}')
         self._pseudo_parent_request_mgs.clear()
         self._parent_already_assigned_msgs.clear()
         self._has_sent_parent_available = False
@@ -129,8 +131,8 @@ class DIGCA(DynaGraph):
 
         if sender not in self.announceResponseList:
             self.announceResponseList.append([sender, num_of_children])
-            self.log.debug(f'AnnounceResponse list: {self.announceResponseList}')
-            self.log.debug(f'response list check, {self.announceResponseList}, {self._sent_announce_msg_list}')
+            # self.log.debug(f'AnnounceResponse list: {self.announceResponseList}')
+            # self.log.debug(f'response list check, {self.announceResponseList}, {self._sent_announce_msg_list}')
             if len(set(self._sent_announce_msg_list) - set([a[0] for a in self.announceResponseList])) == 0:
                 self.send_connection_requests()
 
@@ -143,7 +145,7 @@ class DIGCA(DynaGraph):
             if sender in self.pseudo_children:
                 self.pseudo_children.remove(sender)
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
-            self.comm.send_child_added_message(sender, domain=self.agent.domain)
+            self.comm.send_child_added_message(sender, domain=self.agent.domain, separator=list(self.separator))
             self.log.debug(f'Added agent {sender} to children: {self.children}')
 
             # callbacks
@@ -177,6 +179,7 @@ class DIGCA(DynaGraph):
             self.state = State.INACTIVE
             self.parent = sender
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
+            self.update_separator(message['payload']['separator'] + [sender])
             self.comm.send_parent_assigned_message(sender)
             self.log.debug(f'Set parent node to agent {sender}')
             self._sent_announce_msg_list.remove(sender)
@@ -277,6 +280,19 @@ class DIGCA(DynaGraph):
             self._has_sent_parent_available = True
             self.start_dcop()
 
+    def receive_separator_message(self, message):
+        sender = message['payload']['agent_id']
+        separator = message['payload']['separator']
+        self.log.debug(f'Received separator message from {sender}: {separator}')
+        self.update_separator(separator + [sender])
+
+    def update_separator(self, sep: list):
+        self.separator = deque(sep)
+        for child in self.children:
+            self.comm.threadsafe_execution(
+                partial(self.comm.send_separator_message, child, separator=list(self.separator))
+            )
+
     def get_potential_children(self):
         agents = []
         for _agt in self.agent.new_agents:
@@ -307,6 +323,13 @@ class DIGCA(DynaGraph):
         return self.has_potential_child() or (not self.parent and self.has_potential_parent())
 
     def remove_agent(self, agent):
+        if agent in self.separator:
+            self.log.debug(f'separator before update: {self.separator}')
+            separator = list(self.separator)
+            separator.remove(self.parent)
+            self.update_separator(separator)
+            self.log.debug(f'separator after update: {self.separator}')
+
         if self.parent == agent:
             self.state = State.INACTIVE
             self.parent = None

@@ -264,7 +264,7 @@ class BDIAgent(object):
             self.log.debug(f'Added {message["type"]} message from {message["payload"]["agent_id"]} to paused queue')
         else:
             match message['type']:
-                # DIGCA message handling
+                # DIGCA message handling210552869
                 case messaging.DIGCAMsgTypes.ANNOUNCE:
                     self.graph.receive_announce(message)
 
@@ -288,6 +288,9 @@ class BDIAgent(object):
 
                 case messaging.DIGCAMsgTypes.ALREADY_ACTIVE:
                     self.graph.receive_already_active(message)
+
+                case messaging.DIGCAMsgTypes.SEPARATOR:
+                    self.graph.receive_separator_message(message)
 
                 # DPOP message handling
                 case messaging.DPOPMsgTypes.DPOP_VALUE_MESSAGE:

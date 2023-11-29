@@ -256,7 +256,7 @@ class FireBrigadeAgent(Agent):
         # if self.target and self.target.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE:
         #     domain = [self.target.get_id().get_value()]
         # else:
-        domain = [c.get_id().get_value() for c in self.inspect_buildings_for_domain(self.buildings_for_domain)]
+        domain = [c.get_id().get_value() for c in self.buildings_for_domain]  # self.inspect_buildings_for_domain(self.buildings_for_domain)]
         self.calculate_exploration_factor(self.inspect_buildings_for_domain(self.buildings_for_domain))
         # domain.append(SEARCH_ID)
         self.bdi_agent.domain = domain
@@ -409,15 +409,15 @@ class FireBrigadeAgent(Agent):
         num_neighbors = list(self.bdi_agent.graph.all_neighbors)
         num_assigned = sum([v == selected_value for v in list(self.bdi_agent.dcop.neighbor_values.values())])
 
-        if num_assigned > 2:
-            return 10000.
-
         if selected_value == SEARCH_ID:
             return 0.
 
         cost = 0.
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
+
+        if num_assigned > 2 or entity.get_fieryness() > Fieryness.BURNING_SEVERELY:
+            return 10000.
 
         if entity.get_urn() == Building.urn:
             # distance
