@@ -61,9 +61,6 @@ class DPOP(DCOP):
                     val = self.agent.neighbor_constraint(
                         context,
                         agent_values,
-                    ) + self.agent.unary_constraint(
-                        context,
-                        int(self.agent.domain[0]),
                     )
                     self.X_ij[i, j] = val
 
@@ -72,9 +69,21 @@ class DPOP(DCOP):
 
             self.comm.send_util_message(self.graph.parent, x_j.tolist())
         else:
+            # apply unary constraints
+            u_costs = []
+            for val in self.domain:
+                cost = self.agent.unary_constraint(
+                    context,
+                    int(val),
+                )
+                u_costs.append(cost)
+            c_util_sum += np.array(u_costs)
+
             # parent-level projection
-            self.cost = float(self.optimization_op(c_util_sum))
-            self.value = self.domain[int(self.arg_optimization_op(c_util_sum))]
+            self.cost = self.op(c_util_sum)
+            opt_indices = np.argwhere(c_util_sum == self.cost).flatten().tolist()
+            sel_idx = np.random.choice(opt_indices)
+            self.value = self.domain[sel_idx]
 
             self.log.info(f'Cost is {self.cost}, value = {self.value}')
 
@@ -153,20 +162,39 @@ class DPOP(DCOP):
         data = payload['payload']
         sender = data['agent_id']
         parent_value = data['value']
+        self.neighbor_values[sender] = parent_value
+        self.on_state_value_selection(sender, parent_value)
 
         # determine own value from parent's value
         if self.graph.is_parent(sender) and self.X_ij is not None:
             j = self.neighbor_domains[sender].index(parent_value)
             x_i = self.X_ij[:, j].reshape(-1, )
+
+            # create world-view from local belief and shared belief for reasoning
+            context = self.get_belief()
+
+            # apply unary constraints
+            u_costs = []
+            for val in self.domain:
+                cost = self.agent.unary_constraint(
+                        context,
+                        int(val),
+                    )
+                u_costs.append(cost)
+            x_i += np.array(u_costs)
+
             self.cost = float(self.optimization_op(x_i))
-            self.value = self.domain[int(self.arg_optimization_op(x_i))]
+            opt_indices = np.argwhere(x_i == self.cost).flatten().tolist()
+            sel_idx = np.random.choice(opt_indices)
+            self.value = self.domain[sel_idx]
 
             self.log.info(f'Cost is {self.cost}, value = {self.value}')
 
             self.value_selection(self.value)
+            self.on_state_value_selection(self.agent.agent_id, parent_value)
 
             # send value msgs to children
-            for child in self.graph.children:
+            for child in self.graph.all_children:
                 self.comm.send_dpop_value_message(
                     agent_id=child,
                     value=self.value,
@@ -183,6 +211,11 @@ class DPOP(DCOP):
                 self._compute_util_and_value()
         else:
             self.log.debug(f'UTIL message already sent.')
+
+    def select_random_value(self):
+        # call select_value to use look-ahead model
+        self.log.debug('Applying unary constraints for value selection call')
+        self.select_value()
 
     def __str__(self):
         return 'dpop'

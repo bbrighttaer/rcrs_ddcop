@@ -219,10 +219,10 @@ class LA_DPOP(DCOP):
         data = payload['payload']
         sender = data['agent_id']
         parent_value = data['value']
+        self.neighbor_values[sender] = parent_value
+        self.on_state_value_selection(sender, parent_value)
 
         if sender in self.graph.separator:
-            self.neighbor_values[sender] = parent_value
-            self.on_state_value_selection(sender, parent_value)
             self.neighbor_vals_received = (
                     self.util_msg is not None and len(self.all_parents()) == len(self.neighbor_values)
             )
