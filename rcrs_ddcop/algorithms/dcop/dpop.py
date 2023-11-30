@@ -12,10 +12,10 @@ class DPOP(DCOP):
     traversing_order = 'bottom-up'
     name = 'dpop'
 
-    def __init__(self, agent, on_value_selected: Callable):
-        super(DPOP, self).__init__(agent, on_value_selected)
+    def __init__(self, *args, **kwargs):
+        super(DPOP, self).__init__(*args, **kwargs)
         self._util_msg_requested = False
-        self.neighbor_domains = agent.neighbor_domains
+        self.neighbor_domains = self.agent.neighbor_domains
         self.util_messages = {}
         self.X_ij = None
         self.util_received = False
@@ -34,6 +34,9 @@ class DPOP(DCOP):
         self._util_msg_requested = False
 
     def _compute_util_and_value(self):
+        # create world-view from local belief and shared belief for reasoning
+        context = self.get_belief()
+
         # children
         c_util_sum = np.array([0.] * len(self.domain))
         for child in self.graph.children:
@@ -52,10 +55,17 @@ class DPOP(DCOP):
             for i in range(len(self.agent.domain)):
                 for j in range(len(p_domain)):
                     agent_values = {
-                        self.graph.parent: p_domain[j],
                         self.agent.agent_id: self.agent.domain[i],
+                        self.graph.parent: p_domain[j],
                     }
-                    self.X_ij[i, j] = self.agent.objective(agent_values)
+                    val = self.agent.neighbor_constraint(
+                        context,
+                        agent_values,
+                    ) + self.agent.unary_constraint(
+                        context,
+                        int(self.agent.domain[0]),
+                    )
+                    self.X_ij[i, j] = val
 
             self.X_ij = self.X_ij + c_util_sum.reshape(-1, 1)
             x_j = self.optimization_op(self.X_ij, axis=0)

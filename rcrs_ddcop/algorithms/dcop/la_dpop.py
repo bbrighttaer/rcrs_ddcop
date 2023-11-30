@@ -1,4 +1,5 @@
 import itertools
+import random
 from collections import defaultdict
 
 import numpy as np
@@ -131,50 +132,6 @@ class LA_DPOP(DCOP):
                     'tensor': utils_tensor.tolist(),
                 }
             )
-
-    def _compute_util_and_value(self):
-        self.X_ij = np.zeros((len(self.agent.domain), len(self.agent.domain)))
-
-        # create world-view from local belief and shared belief for reasoning
-        context = self.get_belief()
-
-        # children
-        c_util_sum = np.array([0.] * len(self.domain))
-        for child in self.graph.children:
-            c_util = self.received_util_messages[child]
-            try:
-                c_util_sum += np.array(c_util)
-            except Exception as e:
-                self.log.error(f'computation error: {str(e)}')
-
-        # parents
-        if self.graph.all_parents:
-            for parent in self.graph.all_parents:
-                p_domain = self.neighbor_domains[parent]
-                self._apply_unary_and_coordinated_constraints(context, p_domain)
-
-            self.X_ij = self.X_ij + c_util_sum.reshape(-1, 1)
-            x_j = self.op(self.X_ij, axis=0)
-
-            self.comm.send_util_message(self.graph.parent, x_j.tolist())
-        else:
-            # parent-level projection
-            self.cost = float(self.op(c_util_sum))
-            self.value = self.domain[int(self.arg_op(c_util_sum))]
-
-            self.log.info(f'Cost is {self.cost}, value = {self.value}')
-
-            self.value_selection(self.value)
-
-            # send value msgs to children
-            self.log.info(f'children: {self.graph.children}')
-            for child in self.graph.all_neighbors:
-                self.comm.send_dpop_value_message(
-                    agent_id=child,
-                    value=self.value,
-                )
-
-        self.all_utils_received = False
 
     def _apply_unary_and_coordinated_constraints(self, context, p_domain):
         for i in range(len(self.agent.domain)):
@@ -323,6 +280,40 @@ class LA_DPOP(DCOP):
                 self.send_util_msg_to_parent()
         else:
             self.log.debug(f'UTIL message already sent.')
+
+    def select_random_value(self):
+        self.log.debug('Applying unary constraints for value selection call')
+
+        # create world-view from local belief and shared belief for reasoning
+        context = self.get_belief()
+
+        cost_map = {}
+        for value in self.domain:
+            cost = self.agent.unary_constraint(
+                context,
+                value,
+            )
+            cost_map[value] = cost
+
+        costs = np.array(list(cost_map.values()))
+        vals_list = list(cost_map.keys())
+        opt_indices = np.argwhere(costs == self.op(costs)).flatten().tolist()
+        sel_idx = np.random.choice(opt_indices)
+        self.value = vals_list[sel_idx]
+        self.cost = cost_map[self.value]
+
+        self.log.info(f'Cost is {self.cost}, value = {self.value}')
+
+        self.value_selection(self.value)
+        self.on_state_value_selection(self.agent.agent_id, self.value)
+
+        # send value msgs to children
+        self.log.info(f'Sending DPOP Value msg to children: {self.graph.children}')
+        for child in self.graph.all_children:
+            self.comm.send_dpop_value_message(
+                agent_id=child,
+                value=self.value,
+            )
 
     def __str__(self):
         return self.name

@@ -98,9 +98,11 @@ class DIGCA(DynaGraph):
                     factors.append(num_neighbors)
                 else:
                     p_list.append(a[0])
-            factors = np.array(factors) + 1e-10  # (np.max(factors) - np.array(factors)) + 1e-10
-            probs = factors / np.sum(factors)
-            selected_agent = np.random.choice(agts, p=probs)
+
+            if agts:
+                factors = np.array(factors) + 1e-10  # (np.max(factors) - np.array(factors)) + 1e-10
+                probs = factors / np.sum(factors)
+                selected_agent = np.random.choice(agts, p=probs)
 
         if selected_agent is not None:
             self.log.debug(f'Selected agent for AddMe: {selected_agent}')
@@ -326,9 +328,9 @@ class DIGCA(DynaGraph):
 
     def remove_agent(self, agent):
         if agent in self.separator:
-            self.log.debug(f'separator before update: {self.separator}')
+            self.log.debug(f'separator before update: {self.separator}, agent to remove = {agent}')
             separator = list(self.separator)
-            separator.remove(self.parent)
+            separator.remove(agent)
             self.update_separator(separator)
             self.log.debug(f'separator after update: {self.separator}')
 

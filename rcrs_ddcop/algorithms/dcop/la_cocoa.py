@@ -161,7 +161,7 @@ class LA_CoCoA(DCOP):
 
     def select_random_value(self):
         # call select_value to use look-ahead model
-        self.log.debug('Random value selection call')
+        self.log.debug('Applying unary constraints for value selection call')
         self.select_value()
 
     def can_resolve_agent_value(self) -> bool:
