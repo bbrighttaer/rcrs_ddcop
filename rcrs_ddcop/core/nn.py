@@ -329,7 +329,7 @@ class XGBTrainer:
         self.can_train = True
         self.batch_sz = 700
 
-        # self.load_model()
+        self.load_model()
 
     @property
     def model(self):

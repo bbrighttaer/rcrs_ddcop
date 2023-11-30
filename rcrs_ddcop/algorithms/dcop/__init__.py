@@ -37,7 +37,7 @@ class DCOP:
         self.neighbor_states = {}
         self.neighbor_values = {}
 
-        self.num_look_ahead_steps = 0
+        self.num_look_ahead_steps = 5
         self.past_window_size = 3
         self.future_window_size = 1
         self.model_trainer = XGBTrainer(

@@ -147,7 +147,7 @@ class DIGCA(DynaGraph):
             if sender in self.pseudo_children:
                 self.pseudo_children.remove(sender)
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
-            self.comm.send_child_added_message(sender, domain=self.agent.domain, separator=list(self.separator))
+            self.comm.send_child_added_message(sender, domain=self.agent.domain)  # , separator=list(self.separator))
             self.log.debug(f'Added agent {sender} to children: {self.children}')
 
             # callbacks
@@ -183,7 +183,7 @@ class DIGCA(DynaGraph):
             if sender in self.pseudo_parents:
                 self.pseudo_parents.remove(sender)
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
-            self.update_separator(message['payload']['separator'] + [sender])
+            # self.update_separator(message['payload']['separator'] + [sender])
             self.comm.send_parent_assigned_message(sender)
             self.log.debug(f'Set parent node to agent {sender}')
             self._sent_announce_msg_list.remove(sender)
@@ -327,12 +327,12 @@ class DIGCA(DynaGraph):
         return self.has_potential_child() or (not self.parent and self.has_potential_parent())
 
     def remove_agent(self, agent):
-        if agent in self.separator:
-            self.log.debug(f'separator before update: {self.separator}, agent to remove = {agent}')
-            separator = list(self.separator)
-            separator.remove(agent)
-            self.update_separator(separator)
-            self.log.debug(f'separator after update: {self.separator}')
+        # if agent in self.separator:
+        #     self.log.debug(f'separator before update: {self.separator}, agent to remove = {agent}')
+        #     separator = list(self.separator)
+        #     separator.remove(agent)
+        #     self.update_separator(separator)
+        #     self.log.debug(f'separator after update: {self.separator}')
 
         if self.parent == agent:
             self.state = State.INACTIVE

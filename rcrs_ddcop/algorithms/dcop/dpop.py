@@ -40,11 +40,9 @@ class DPOP(DCOP):
         # children
         c_util_sum = np.array([0.] * len(self.domain))
         for child in self.graph.children:
-            c_util = self.util_messages[child]
-            try:
+            if child in self.util_messages:
+                c_util = self.util_messages[child]
                 c_util_sum += np.array(c_util)
-            except Exception as e:
-                self.log.error(f'computation error: {str(e)}')
 
         # parent
         if self.graph.parent:
