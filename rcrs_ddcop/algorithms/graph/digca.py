@@ -98,7 +98,7 @@ class DIGCA(DynaGraph):
                     factors.append(num_neighbors)
                 else:
                     p_list.append(a[0])
-            factors = (np.max(factors) - np.array(factors)) + 1e-10
+            factors = np.array(factors) + 1e-10  # (np.max(factors) - np.array(factors)) + 1e-10
             probs = factors / np.sum(factors)
             selected_agent = np.random.choice(agts, p=probs)
 
@@ -178,6 +178,8 @@ class DIGCA(DynaGraph):
         if self.state == State.ACTIVE and not self.parent:
             self.state = State.INACTIVE
             self.parent = sender
+            if sender in self.pseudo_parents:
+                self.pseudo_parents.remove(sender)
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
             self.update_separator(message['payload']['separator'] + [sender])
             self.comm.send_parent_assigned_message(sender)
