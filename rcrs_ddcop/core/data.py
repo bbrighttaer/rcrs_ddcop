@@ -14,7 +14,6 @@ from rcrs_core.entities.human import Human
 from rcrs_core.worldmodel.entityID import EntityID
 from rcrs_core.worldmodel.worldmodel import WorldModel
 from torch_geometric.data import Data
-import ImbalancedLearningRegression as iblr
 
 from rcrs_ddcop.core.enums import Fieryness
 from rcrs_ddcop.utils.common_funcs import euclidean_distance
@@ -139,39 +138,39 @@ def get_building_fire_index(building: Building, world_model: WorldModel):
     return val
 
 
-def correct_skewed_data(X, Y, columns, target_col):
-    data = np.concatenate([X, Y], axis=1)
-
-    # see https://github.com/nickkunz/smogn/blob/master/examples/smogn_example_3_adv.ipynb
-    rg_mtrx = [
-        [0, 0, 0],  ## under-sample
-        [1, 1, 0],  ## over-sample
-        [2, 1, 0],  ## over-sample
-        [3, 1, 0],  ## over-sample
-        [4, 1, 0],  ## under-sample
-        [5, 1, 0],  ## under-sample
-        [6, 1, 0],  ## under-sample
-        [7, 0, 0],  ## under-sample
-        [8, 0, 0],  ## under-sample
-    ]
-    # data_bal = smogn.smoter(
-    #     train_data=pd.DataFrame(train_data, columns=columns),
-    #     y=target_col,
-    #     rel_thres=0.1,
-    #     rel_method='manual',
-    #     rel_ctrl_pts_rg=rg_mtrx,
-    # )
-    data_bal = iblr.gn(
-        data=pd.DataFrame(data, columns=columns),
-        y='fieryness_x',
-        rel_thres=0.5,
-        rel_method='manual',
-        rel_ctrl_pts_rg=rg_mtrx,
-    )
-    data_sampled = data_bal.to_numpy()
-    X_ = data_sampled[:, :X.shape[-1]]
-    Y_ = data_sampled[:, X.shape[-1]:]
-    return X_, Y_
+# def correct_skewed_data(X, Y, columns, target_col):
+#     data = np.concatenate([X, Y], axis=1)
+#
+#     # see https://github.com/nickkunz/smogn/blob/master/examples/smogn_example_3_adv.ipynb
+#     rg_mtrx = [
+#         [0, 0, 0],  ## under-sample
+#         [1, 1, 0],  ## over-sample
+#         [2, 1, 0],  ## over-sample
+#         [3, 1, 0],  ## over-sample
+#         [4, 1, 0],  ## under-sample
+#         [5, 1, 0],  ## under-sample
+#         [6, 1, 0],  ## under-sample
+#         [7, 0, 0],  ## under-sample
+#         [8, 0, 0],  ## under-sample
+#     ]
+#     # data_bal = smogn.smoter(
+#     #     train_data=pd.DataFrame(train_data, columns=columns),
+#     #     y=target_col,
+#     #     rel_thres=0.1,
+#     #     rel_method='manual',
+#     #     rel_ctrl_pts_rg=rg_mtrx,
+#     # )
+#     data_bal = iblr.gn(
+#         data=pd.DataFrame(data, columns=columns),
+#         y='fieryness_x',
+#         rel_thres=0.5,
+#         rel_method='manual',
+#         rel_ctrl_pts_rg=rg_mtrx,
+#     )
+#     data_sampled = data_bal.to_numpy()
+#     X_ = data_sampled[:, :X.shape[-1]]
+#     Y_ = data_sampled[:, X.shape[-1]:]
+#     return X_, Y_
 
 
 def series_to_supervised(data, n_in=1, n_out=1, dropnan=True):

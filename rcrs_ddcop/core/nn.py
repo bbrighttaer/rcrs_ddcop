@@ -329,7 +329,7 @@ class XGBTrainer:
         self.can_train = True
         self.batch_sz = 700
 
-        self.load_model()
+        # self.load_model()
 
     @property
     def model(self):
@@ -407,8 +407,8 @@ class XGBTrainer:
                 model.load_config(self.best_model_config)
                 self._model = model
                 self.normalizer = normalizer
-                model.save_model(f'{self.label}_model.json')
-                joblib.dump(self.normalizer, f'{self.label}_scaler.bin')
+                model.save_model(f'models/{self.label}_model.json')
+                joblib.dump(self.normalizer, f'models/{self.label}_scaler.bin')
 
             self.has_trained = True
 
