@@ -59,7 +59,7 @@ def check_rescue_task(targets: List[Entity]) -> bool:
 class FireBrigadeAgent(Agent):
     def __init__(self, pre):
         Agent.__init__(self, pre)
-        self.trajectory_len = 100
+        self.trajectory_len = 10
         self.current_time_step = 0
         self.name = 'FireBrigadeAgent'
         self.bdi_agent = None
@@ -293,8 +293,8 @@ class FireBrigadeAgent(Agent):
         self.Log.debug(f'Deliberation time = {time_taken}')
 
         # reset building information at the end of every trajectory
-        if time_step % self.trajectory_len == 0:
-            self.reset_buildings()
+        # if time_step % self.trajectory_len == 0:
+        #     self.reset_buildings()
 
     def deliberate(self, state, time_step):
         # execute thinking process
