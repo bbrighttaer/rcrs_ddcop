@@ -1,11 +1,12 @@
 import functools
 import json
+from collections import namedtuple
+from multiprocessing import Queue, Manager
+from threading import Thread
 from typing import Callable, List
 
-import pika
-
 from rcrs_ddcop.comm import messaging
-from rcrs_ddcop.core.enums import InfoSharingType
+from rcrs_ddcop.comm.http_comm import HttpCommunicationLayer, send_http_msg
 
 BROKER_URL = '127.0.0.1'
 BROKER_PORT = 5672
@@ -46,51 +47,24 @@ class AgentPseudoComm(object):
         self._bdi_agt = agent
         self.agent_id = agent.agent_id
         self.Log = agent.log
-        self.client = pika.BlockingConnection(
-            pika.ConnectionParameters(
-                host=BROKER_URL,
-                port=BROKER_PORT,
-                heartbeat=0,  # only for experimental purposes - see (https://www.rabbitmq.com/heartbeats.html)
-                credentials=pika.credentials.PlainCredentials(PIKA_USERNAME, PIKA_PASSWORD),
-                connection_attempts=5,
-            ))
-        self.channel = self.client.channel()
-        self.channel.exchange_declare(exchange=COMM_EXCHANGE, exchange_type='topic')
-        self.queue = f'queue-{self.agent_id}'
-        self.channel.queue_declare(self.queue, exclusive=False)
 
-        # subscribe to topics
-        self.channel.queue_bind(
-            exchange=COMM_EXCHANGE,
-            queue=self.queue,
-            routing_key=f'{AGENTS_CHANNEL}.{self.agent_id}.#'  # dedicated topic
-        )
-        self.channel.queue_bind(
-            exchange=COMM_EXCHANGE,
-            queue=self.queue,
-            routing_key=f'{AGENTS_CHANNEL}.public.#'  # general topic
+        self.http_comm = HttpCommunicationLayer(
+            self.Log,
+            address_port=('127.0.0.1', agent.com_port),
         )
 
-        # bind callback function for receiving messages
-        self.channel.basic_consume(
-            queue=self.queue,
-            on_message_callback=create_on_message(self.agent_id, agent.handle_message),
-            auto_ack=True
-        )
+        # register agent's message handler
+        comm_channel.register_message_callback(self.agent_id, agent.com_port)
 
     def listen_to_network(self, duration=0.1):
-        self.client.sleep(duration)
+        ...
 
     def _send_to_agent(self, agent_id, body):
         # intercept message and add current time step information
         data = json.loads(body)
         data['time_step'] = self._bdi_agt.time_step
         body = json.dumps(data)
-        self.channel.basic_publish(
-            exchange=COMM_EXCHANGE,
-            routing_key=f'{AGENTS_CHANNEL}.{agent_id}',
-            body=body,
-        )
+        comm_channel.send(msg=Message(agent_id, body))
 
     def broadcast_announce_message(self, neighboring_agents: List[int]):
         for agt in neighboring_agents:
@@ -227,7 +201,7 @@ class AgentPseudoComm(object):
         )
 
     def threadsafe_execution(self, func: Callable):
-        self.client.add_callback_threadsafe(func)
+        Thread(target=func).start()
 
     def send_lsla_inquiry_message(self, agent_id, data):
         self._send_to_agent(
@@ -292,3 +266,45 @@ class AgentPseudoComm(object):
             })
         )
 
+
+# default message object interchanged between agents.
+Message = namedtuple('Message', field_names=['agent_id', 'body'])
+
+
+class CommChannel:
+    """
+    A queue-based communication channel
+    """
+
+    def __init__(self):
+        self._channel = Queue()
+        self._registry = Manager().dict()
+
+    def register_message_callback(self, agent_id, port):
+        print(agent_id, port)
+        self._registry[agent_id] = port
+        print(f'registered port for agent {agent_id}')
+
+    def send(self, msg: Message):
+        self._channel.put(msg)
+
+    def activate(self):
+        Thread(target=self._start).start()
+
+    def _start(self):
+        print('Communication channel activated')
+
+        while True:
+            # get message from channel
+            msg: Message = self._channel.get()
+            print(f'data: {msg}', self._registry)
+
+            # pass on message to recipient, if a handling function is registered, else put the msg back in the queue
+            if msg.agent_id in self._registry:
+                port = self._registry[msg.agent_id]
+                Thread(target=send_http_msg, args=[port, msg.body]).start()
+            else:
+                self._channel.put(msg)
+
+
+comm_channel = CommChannel()

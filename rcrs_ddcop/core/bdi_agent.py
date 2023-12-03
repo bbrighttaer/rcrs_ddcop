@@ -135,6 +135,10 @@ class BDIAgent(object):
     def time_step(self):
         return self._rcrs_agent.current_time_step
 
+    @property
+    def com_port(self):
+        return self._rcrs_agent.com_port
+
     def add_neighbor_domain(self, k, v):
         self._neighbor_domains[k] = v
 
