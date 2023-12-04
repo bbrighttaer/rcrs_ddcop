@@ -18,7 +18,8 @@ class DPOP(DCOP):
         self.neighbor_domains = self.agent.neighbor_domains
         self.util_messages = {}
         self.X_ij = None
-        self.util_received = False
+        self.util_vec = None
+
         if self.agent.optimization_op == 'max':
             self.optimization_op = np.max
             self.arg_optimization_op = np.argmax
@@ -32,22 +33,16 @@ class DPOP(DCOP):
         self.value = None
         self.util_messages.clear()
         self._util_msg_requested = False
+        self.util_vec = np.array([0.] * len(self.domain))
+        self.neighbor_values.clear()
 
-    def _compute_util_and_value(self):
+    def send_util_msg(self):
         # create world-view from local belief and shared belief for reasoning
         context = self.get_belief()
-
-        # children
-        c_util_sum = np.array([0.] * len(self.domain))
-        for child in self.graph.children:
-            if child in self.util_messages:
-                c_util = self.util_messages[child]
-                c_util_sum += np.array(c_util)
 
         # parent
         if self.graph.parent:
             p_domain = self.neighbor_domains[self.graph.parent]
-
             self.X_ij = np.zeros((len(self.agent.domain), len(p_domain)))
 
             for i in range(len(self.agent.domain)):
@@ -62,40 +57,13 @@ class DPOP(DCOP):
                     )
                     self.X_ij[i, j] = val
 
-            self.X_ij = self.X_ij + c_util_sum.reshape(-1, 1)
+            self.X_ij = self.X_ij + self.util_vec.reshape(-1, 1)
             x_j = self.optimization_op(self.X_ij, axis=0)
 
+            self.log.debug(f'Sending UTIL msg to {self.graph.parent}')
             self.comm.send_util_message(self.graph.parent, x_j.tolist())
         else:
-            # apply unary constraints
-            u_costs = []
-            for val in self.domain:
-                cost = self.agent.unary_constraint(
-                    context,
-                    int(val),
-                )
-                u_costs.append(cost)
-            c_util_sum += np.array(u_costs)
-
-            # parent-level projection
-            self.cost = self.op(c_util_sum)
-            opt_indices = np.argwhere(c_util_sum == self.cost).flatten().tolist()
-            sel_idx = np.random.choice(opt_indices)
-            self.value = self.domain[sel_idx]
-
-            self.log.info(f'Cost is {self.cost}, value = {self.value}')
-
-            self.value_selection(self.value)
-
-            # send value msgs to children
-            self.log.debug(f'sending value msgs to children: {self.graph.children}')
-            for child in self.graph.children:
-                self.comm.send_dpop_value_message(
-                    agent_id=child,
-                    value=self.value,
-                )
-
-        self.util_received = False
+            self.log.warn('No connected parent to receive UTIL msg')
 
     def execute_dcop(self):
         if len(self.graph.neighbors) == 0:
@@ -107,7 +75,7 @@ class DPOP(DCOP):
             self.X_ij = None
 
             # calculate UTIL messages and send to parent
-            self._compute_util_and_value()
+            self.send_util_msg()
 
         elif not self._util_msg_requested:
             self.log.info('Requesting UTIL msgs from children')
@@ -118,27 +86,59 @@ class DPOP(DCOP):
         # get agents that are yet to send UTIL msgs
         new_agents = set(self.graph.children) - set(self.util_messages.keys())
 
-        # if all UTIL msgs have been received then compute UTIL and send to parent
-        # if self.util_messages and len(new_agents) == 0:
-        #     self._compute_util_and_value()
-        # else:
         for child in new_agents:
             self.comm.send_util_request_message(child)
 
     def can_resolve_agent_value(self) -> bool:
         # agent should have received util msgs from all children
-        can_resolve = (not self.graph.parent
-                      and self.value is None
-                      and self.graph.neighbors \
-                      and self.util_messages \
-                      and len(self.util_messages) == len(self.graph.children) \
-                      and self.util_received)
+        can_resolve = self.value is None and (
+                (
+                        self.graph.parent is None
+                        and self.util_messages
+                        and len(self.util_messages) == len(self.graph.children)
+                ) or (
+                       self.X_ij is not None and self.graph.parent in self.neighbor_values
+                )
+        )
 
         return can_resolve
 
     def select_value(self):
-        # calculate value and send VALUE messages and send to children
-        self._compute_util_and_value()
+        # create world-view from local belief and shared belief for reasoning
+        context = self.get_belief()
+
+        if self.graph.parent and self.X_ij is not None:
+            parent_value = self.neighbor_values[self.graph.parent]
+            j = self.neighbor_domains[self.graph.parent].index(parent_value)
+            self.util_vec = self.X_ij[:, j].reshape(-1, )
+
+        # apply unary constraints
+        u_costs = []
+        for val in self.domain:
+            cost = self.agent.unary_constraint(
+                context,
+                int(val),
+            )
+            u_costs.append(cost)
+        self.util_vec += np.array(u_costs)
+
+        # parent-level projection
+        self.cost = self.op(self.util_vec)
+        opt_indices = np.argwhere(self.util_vec == self.cost).flatten().tolist()
+        sel_idx = np.random.choice(opt_indices)
+        self.value = self.domain[sel_idx]
+
+        self.log.info(f'Cost is {self.cost}, value = {self.value}')
+
+        self.value_selection(self.value)
+
+        # send value msgs to children
+        self.log.debug(f'sending value msgs to children: {self.graph.children}')
+        for child in self.graph.children:
+            self.comm.send_dpop_value_message(
+                agent_id=child,
+                value=self.value,
+            )
 
     def receive_util_message(self, payload):
         self.log.info(f'Received util message: {payload}')
@@ -150,12 +150,15 @@ class DPOP(DCOP):
             self.log.debug('Added UTIL message')
             self.util_messages[sender] = util
 
-        if set(self.graph.get_connected_agents()) == set(self.agent.agents_in_comm_range) and \
-                set(self.util_messages.keys()) == set(self.graph.children):
-            self.util_received = True
+            # update aggregated utils vec
+            self.util_vec += np.array(util)
 
-        # reqeust util msgs from children yet to submit theirs
-        self._send_util_requests_to_children()
+        # send to parent or request outstanding UTILs from children
+        if len(self.util_messages) == len(self.graph.children) and self.graph.parent:
+            self.send_util_msg()
+        else:
+            # reqeust util msgs from children yet to submit theirs
+            self._send_util_requests_to_children()
 
     def receive_value_message(self, payload):
         self.log.info(f'Received VALUE message: {payload}')
@@ -165,41 +168,6 @@ class DPOP(DCOP):
         self.neighbor_values[sender] = parent_value
         self.on_state_value_selection(sender, parent_value)
 
-        # determine own value from parent's value
-        if self.graph.is_parent(sender) and self.X_ij is not None:
-            j = self.neighbor_domains[sender].index(parent_value)
-            x_i = self.X_ij[:, j].reshape(-1, )
-
-            # create world-view from local belief and shared belief for reasoning
-            context = self.get_belief()
-
-            # apply unary constraints
-            u_costs = []
-            for val in self.domain:
-                cost = self.agent.unary_constraint(
-                        context,
-                        int(val),
-                    )
-                u_costs.append(cost)
-            x_i += np.array(u_costs)
-
-            self.cost = float(self.optimization_op(x_i))
-            opt_indices = np.argwhere(x_i == self.cost).flatten().tolist()
-            sel_idx = np.random.choice(opt_indices)
-            self.value = self.domain[sel_idx]
-
-            self.log.info(f'Cost is {self.cost}, value = {self.value}')
-
-            self.value_selection(self.value)
-            self.on_state_value_selection(self.agent.agent_id, parent_value)
-
-            # send value msgs to children
-            for child in self.graph.all_children:
-                self.comm.send_dpop_value_message(
-                    agent_id=child,
-                    value=self.value,
-                )
-
     def receive_util_message_request(self, payload):
         self.log.info(f'Received UTIL request message: {payload}')
         data = payload['payload']
@@ -208,7 +176,7 @@ class DPOP(DCOP):
             if self.graph.children:
                 self._send_util_requests_to_children()
             else:
-                self._compute_util_and_value()
+                self.send_util_msg()
         else:
             self.log.debug(f'UTIL message already sent.')
 

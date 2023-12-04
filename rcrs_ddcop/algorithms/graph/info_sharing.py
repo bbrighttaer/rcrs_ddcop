@@ -34,8 +34,9 @@ class NeighborInfoSharing:
         """
         agents = filter(lambda x: x > self.agent_id, agents)
         exp_keys = self.exp_buffer.get_keys()
-        if exp_keys:
-            self.log.info(f'Sending experience history disclosure messages to {list(agents)}')
+        agents = list(agents)
+        if exp_keys and agents:
+            self.log.info(f'Sending experience history disclosure messages to {agents}')
             for agent in agents:
                 self.comm.send_exp_history_disclosure_message(agent, exp_keys=exp_keys)
 

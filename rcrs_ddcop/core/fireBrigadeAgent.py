@@ -5,6 +5,7 @@ import threading
 import time
 from collections import defaultdict
 from itertools import chain
+from threading import Event
 from typing import List
 
 import numpy as np
@@ -83,6 +84,7 @@ class FireBrigadeAgent(Agent):
         self.exploration_factor = {}
         self.building_to_index = {}
         self.index_to_building = {}
+        self.domain = {}
 
     def _set_seed(self):
         seed = self.agent_id.get_value()
@@ -122,20 +124,23 @@ class FireBrigadeAgent(Agent):
             elif entity.get_urn() == Road.urn:
                 self.roads.append(entity)
 
-        # compute distance from each road to building
-        for b in self.buildings_for_domain:
-            self.building_to_road[b.get_id()] = sorted([
-                        [road.get_id(), euclidean_distance(road.get_x(), road.get_y(), b.get_x(), b.get_y())]
-                        for road in self.roads
-                    ],
-                    key=lambda x: x[1],
-                )
-
         # get global index of buildings
         building_ids = sorted(building_ids)
         for i, b_id in enumerate(building_ids):
             self.building_to_index[b_id] = i
             self.index_to_building[i] = b_id
+
+        # compute distance from each road to building
+        for b in self.buildings_for_domain:
+            self.building_to_road[b.get_id()] = sorted([
+                [road.get_id(), euclidean_distance(road.get_x(), road.get_y(), b.get_x(), b.get_y())]
+                for road in self.roads
+            ],
+                key=lambda x: x[1],
+            )
+
+        # update domain
+        self.domain = [c.get_id().get_value() for c in self.buildings_for_domain]
 
     def get_targets(self, entities: List[Entity]) -> list[Entity]:
         """Gets the entities that could be rescued by this agent"""
@@ -221,7 +226,11 @@ class FireBrigadeAgent(Agent):
 
     def think(self, time_step, change_set, heard):
         start = time.perf_counter()
+        self.current_time_step = time_step
+        self.bdi_agent.domain = self.domain
+        self.bdi_agent.on_time_step_changed(time_step)
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
+
         # if time_step < int(self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY)):
         #     # self.send_subscribe(time_step, [1, 2])
         #     return
@@ -229,7 +238,7 @@ class FireBrigadeAgent(Agent):
         # get visible entity_ids
         change_set_entity_ids = list(change_set.changed.keys())
         change_set_entities = self.get_change_set_entities(change_set_entity_ids)
-        self.Log.debug(f'Seen {[c.get_value() for c in change_set_entity_ids]}')
+        # self.Log.debug(f'Seen {[c.get_value() for c in change_set_entity_ids]}')
 
         self.update_visitation_frequency(change_set_entities)
 
@@ -237,7 +246,6 @@ class FireBrigadeAgent(Agent):
         # self.update_unexplored_buildings(change_set_entities)
 
         # get agents in communication range
-        self.current_time_step = time_step
         neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
         self.bdi_agent.remove_unreachable_neighbors()
@@ -253,17 +261,10 @@ class FireBrigadeAgent(Agent):
         state = world_to_state(self.world_model)
         exp_keys = self.bdi_agent.set_state(state, time_step)
 
-        # update domain
-        # targets = self.get_targets(change_set_entities)
-        # if self.target and self.target.get_fieryness() < Fieryness.NOT_BURNING_WATER_DAMAGE:
-        #     domain = [self.target.get_id().get_value()]
-        # else:
-        domain = [c.get_id().get_value() for c in self.buildings_for_domain]  # self.inspect_buildings_for_domain(self.buildings_for_domain)]
+        # updater exploration info
         self.calculate_exploration_factor(self.inspect_buildings_for_domain(self.buildings_for_domain))
-        # domain.append(SEARCH_ID)
-        self.bdi_agent.domain = domain
 
-        if not domain:
+        if not self.domain:
             self.Log.warning('Domain set is empty')
             return
 

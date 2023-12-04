@@ -77,9 +77,10 @@ class DIGCA(DynaGraph):
             self._timeout_delay_start = None
 
         elif self.parent:
-            for a in broadcast_list:
-                self.log.debug(f'Sending pseudo-parent request to {a}')
-                self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
+            for a in self.get_potential_parents():
+                if a not in broadcast_list:
+                    self.log.debug(f'Sending pseudo-parent request to {a}')
+                    self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
 
     def send_connection_requests(self):
         self.log.debug(f'AnnounceResponse list in connect: {self.announceResponseList}')
@@ -227,22 +228,20 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received pseudo parent request message from {sender}')
 
         # add sender as pseudo-child
-        if sender in self.pseudo_children:
-            self.pseudo_children.remove(sender)
+        if sender not in self.all_children:
+            self.pseudo_children.append(sender)
+            self.agent.add_neighbor_domain(sender, message['payload']['domain'])
+            self.comm.send_pseudo_child_added_message(sender, domain=self.agent.domain)
+            self.log.debug(f'Agent {sender} added as pseudo child successfully')
 
-        self.pseudo_children.append(sender)
-        self.agent.add_neighbor_domain(sender, message['payload']['domain'])
-        self.comm.send_pseudo_child_added_message(sender, domain=self.agent.domain)
-        self.log.debug(f'Agent {sender} added as pseudo child successfully')
+            # callbacks
+            self.fire_callbacks(
+                cb_types=[DynamicGraphCallback.PSEUDO_CHILD_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
+                agent=sender,
+            )
 
-        # callbacks
-        self.fire_callbacks(
-            cb_types=[DynamicGraphCallback.PSEUDO_CHILD_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
-            agent=sender,
-        )
-
-        if self.can_start_dcop() and not self.agent.value:
-            self.start_dcop()
+            if self.can_start_dcop() and not self.agent.value:
+                self.start_dcop()
 
     def receive_pseudo_child_added_message(self, message):
         sender = message['payload']['agent_id']
@@ -264,8 +263,7 @@ class DIGCA(DynaGraph):
                 agent=sender,
             )
 
-            if self.can_start_dcop() and not self.agent.value:
-                self.start_dcop()
+            self.start_dcop()
 
     def receive_parent_available_message(self, message):
         # self.log.debug(f'Received parent available message: {message}')

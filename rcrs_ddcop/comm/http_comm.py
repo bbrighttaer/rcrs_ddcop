@@ -126,6 +126,7 @@ class MPCHttpHandler(BaseHTTPRequestHandler):
             self.send_response(404, str(e))
             self.send_header("Content-type", "text/plain")
             self.end_headers()
+            raise e
 
     def log_request(self, code="-", size="-"):
         # Avoid logging all requests to stdout
@@ -139,7 +140,7 @@ def send_http_msg(ip_addr, port, msg):
         r = requests.post(
             dest_address,
             json=msg,
-            timeout=0.5,
+            timeout=3.,
         )
         if r is not None and r.status_code == 404:
             # It seems that the target computation of this message is not

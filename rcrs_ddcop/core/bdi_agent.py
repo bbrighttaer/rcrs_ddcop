@@ -41,6 +41,7 @@ class BDIAgent(object):
         self.look_ahead_tuples = None
         self.all_agents_selected_vals = {}
         self.past_states = deque(maxlen=3)
+        self.time_step = 0
 
         self._decision_timeout_count = 0
 
@@ -136,10 +137,6 @@ class BDIAgent(object):
         return self._previous_value
 
     @property
-    def time_step(self):
-        return self._rcrs_agent.current_time_step
-
-    @property
     def com_port(self):
         return self._rcrs_agent.com_port
 
@@ -197,11 +194,6 @@ class BDIAgent(object):
         self.log.debug('started deliberation...')
         self._value_selection_evt.clear()
 
-        # time step changed callbacks
-        self.dcop.on_time_step_changed()
-        self.graph.on_time_step_changed()
-        self.info_share.on_time_step_changed()
-
         # clear currently assigned value
         self.clear_current_value()
 
@@ -239,6 +231,13 @@ class BDIAgent(object):
 
         self.log.debug('finished deliberation...')
         return self._value, self.dcop.cost
+
+    def on_time_step_changed(self, time_step):
+        self.current_time_step = time_step
+        # time step changed callbacks
+        self.dcop.on_time_step_changed()
+        self.graph.on_time_step_changed()
+        self.info_share.on_time_step_changed()
 
     def remove_unreachable_neighbors(self):
         # remove agents that are out-of-range

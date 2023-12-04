@@ -68,7 +68,7 @@ class DynaGraph:
 
     def start_dcop(self, timeout=False):
         if timeout or self.can_start_dcop():
-            self.log.info(f'Starting DCOP...')
+            self.log.info(f'Starting DCOP from DIGCA')
             self.agent.execute_dcop()
             self.exec_started = True
         else:
