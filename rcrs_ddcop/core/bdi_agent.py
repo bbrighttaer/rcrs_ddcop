@@ -81,6 +81,10 @@ class BDIAgent(object):
     def state(self):
         return self._state
 
+    @property
+    def com_channel(self):
+        return self._rcrs_agent.com_channel
+
     def set_state(self, state, time_step):
         exp_keys = []
         self._state = state

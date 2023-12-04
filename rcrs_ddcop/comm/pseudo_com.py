@@ -48,13 +48,15 @@ class AgentPseudoComm(object):
         self.agent_id = agent.agent_id
         self.Log = agent.log
 
+        ip_addr = '127.0.0.1'
         self.http_comm = HttpCommunicationLayer(
             self.Log,
-            address_port=('127.0.0.1', agent.com_port),
+            address_port=(ip_addr, agent.com_port),
+            on_message_handler=agent.handle_message,
         )
 
         # register agent's message handler
-        comm_channel.register_message_callback(self.agent_id, agent.com_port)
+        self._bdi_agt.com_channel.register_agent_ip_port(self.agent_id, ip_addr, agent.com_port)
 
     def listen_to_network(self, duration=0.1):
         ...
@@ -64,7 +66,7 @@ class AgentPseudoComm(object):
         data = json.loads(body)
         data['time_step'] = self._bdi_agt.time_step
         body = json.dumps(data)
-        comm_channel.send(msg=Message(agent_id, body))
+        self._bdi_agt.com_channel.send(msg=Message(agent_id, body))
 
     def broadcast_announce_message(self, neighboring_agents: List[int]):
         for agt in neighboring_agents:
@@ -280,10 +282,8 @@ class CommChannel:
         self._channel = Queue()
         self._registry = Manager().dict()
 
-    def register_message_callback(self, agent_id, port):
-        print(agent_id, port)
-        self._registry[agent_id] = port
-        print(f'registered port for agent {agent_id}')
+    def register_agent_ip_port(self, agent_id, ip_addr, port):
+        self._registry[agent_id] = (ip_addr, port)
 
     def send(self, msg: Message):
         self._channel.put(msg)
@@ -297,14 +297,11 @@ class CommChannel:
         while True:
             # get message from channel
             msg: Message = self._channel.get()
-            print(f'data: {msg}', self._registry)
 
             # pass on message to recipient, if a handling function is registered, else put the msg back in the queue
             if msg.agent_id in self._registry:
-                port = self._registry[msg.agent_id]
-                Thread(target=send_http_msg, args=[port, msg.body]).start()
+                ip_addr, port = self._registry[msg.agent_id]
+                Thread(target=send_http_msg, args=[ip_addr, port, msg.body]).start()
             else:
                 self._channel.put(msg)
 
-
-comm_channel = CommChannel()

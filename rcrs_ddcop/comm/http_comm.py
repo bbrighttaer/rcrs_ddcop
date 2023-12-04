@@ -3,7 +3,7 @@ import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from json import JSONDecodeError
 from threading import Thread
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 import requests
 
@@ -39,17 +39,15 @@ class HttpCommunicationLayer:
         primary IP address (i.e. the one with a default route) and listen on
         port 9000.
 
-    on_error: str
-        Indicates how error when sending a message will be
-        handled, possible value are 'ignore', 'retry', 'fail'
-
     """
 
     def __init__(
             self,
             logger,
+            on_message_handler: Callable,
             address_port: Optional[Tuple[str, int]] = None,
     ):
+        self.on_message_handler = on_message_handler
         if not address_port:
             self._address = find_local_ip(), 9000
         else:
@@ -84,7 +82,8 @@ class HttpCommunicationLayer:
         t.start()
 
     def on_post_message(self, msg):
-        self.logger.debug(f"Http message received {msg}, {type(msg)}")
+        msg = json.loads(msg)
+        self.on_message_handler(msg)
 
     @property
     def address(self) -> Tuple[str, int]:
@@ -133,9 +132,9 @@ class MPCHttpHandler(BaseHTTPRequestHandler):
         pass
 
 
-def send_http_msg(port, msg):
+def send_http_msg(ip_addr, port, msg):
 
-    dest_address = f'http://127.0.0.1:{port}'
+    dest_address = f'http://{ip_addr}:{port}'
     try:
         r = requests.post(
             dest_address,

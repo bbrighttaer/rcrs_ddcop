@@ -36,7 +36,6 @@ class DIGCA(DynaGraph):
         self._max_num_neighbors = max_num_of_neighbors
 
     def on_time_step_changed(self):
-        self.log.debug(f'Vars separator: {self.separator}')
         self._pseudo_parent_request_mgs.clear()
         self._parent_already_assigned_msgs.clear()
         self._has_sent_parent_available = False
@@ -78,7 +77,7 @@ class DIGCA(DynaGraph):
             self._timeout_delay_start = None
 
         elif self.parent:
-            for a in new_agents:
+            for a in broadcast_list:
                 self.log.debug(f'Sending pseudo-parent request to {a}')
                 self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
 

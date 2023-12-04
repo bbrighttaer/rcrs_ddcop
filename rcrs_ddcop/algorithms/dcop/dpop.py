@@ -88,7 +88,7 @@ class DPOP(DCOP):
             self.value_selection(self.value)
 
             # send value msgs to children
-            self.log.info(f'children: {self.graph.children}')
+            self.log.debug(f'sending value msgs to children: {self.graph.children}')
             for child in self.graph.children:
                 self.comm.send_dpop_value_message(
                     agent_id=child,
@@ -119,18 +119,20 @@ class DPOP(DCOP):
         new_agents = set(self.graph.children) - set(self.util_messages.keys())
 
         # if all UTIL msgs have been received then compute UTIL and send to parent
-        if self.util_messages and len(new_agents) == 0:
-            self._compute_util_and_value()
-        else:
-            for child in new_agents:
-                self.comm.send_util_request_message(child)
+        # if self.util_messages and len(new_agents) == 0:
+        #     self._compute_util_and_value()
+        # else:
+        for child in new_agents:
+            self.comm.send_util_request_message(child)
 
     def can_resolve_agent_value(self) -> bool:
         # agent should have received util msgs from all children
-        can_resolve = self.graph.neighbors \
+        can_resolve = (not self.graph.parent
+                      and self.value is None
+                      and self.graph.neighbors \
                       and self.util_messages \
                       and len(self.util_messages) == len(self.graph.children) \
-                      and self.util_received
+                      and self.util_received)
 
         return can_resolve
 
