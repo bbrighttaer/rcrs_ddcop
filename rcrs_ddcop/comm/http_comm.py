@@ -26,6 +26,8 @@ def find_local_ip():
 
 class HttpCommunicationLayer:
     """
+    Adapted from pyDCOP communication module.
+
     This class implements the CommunicationLayer protocol.
 
     It uses an http server and client to send and receive messages.

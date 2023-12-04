@@ -1,5 +1,3 @@
-from typing import Callable
-
 import numpy as np
 
 from rcrs_ddcop.algorithms.dcop import DCOP
