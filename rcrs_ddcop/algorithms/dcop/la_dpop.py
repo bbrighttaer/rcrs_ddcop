@@ -1,5 +1,6 @@
 import itertools
 import random
+import time
 from collections import defaultdict
 
 import numpy as np
@@ -24,6 +25,7 @@ class LA_DPOP(DCOP):
         self.all_utils_received = False
         self.util_registry = defaultdict(float)
         self.neighbor_vals_received = False
+        self._exec_start_time = None
 
     def on_time_step_changed(self):
         self.cost = None
@@ -36,6 +38,7 @@ class LA_DPOP(DCOP):
         self.util_registry.clear()
         self.neighbor_vals_received = False
         self.neighbor_values.clear()
+        self._exec_start_time = None
 
     def send_util_msg_to_parent(self):
         self.log.debug('UTIL msg preparation')
@@ -150,6 +153,7 @@ class LA_DPOP(DCOP):
                 self.X_ij[i, j] += val
 
     def execute_dcop(self):
+        self._exec_start_time = time.perf_counter()
         self.log.info('Initiating DPOP...')
 
         # if there are no nearby agents
@@ -263,6 +267,9 @@ class LA_DPOP(DCOP):
                 agent_id=child,
                 value=self.value,
             )
+
+        if self._exec_start_time:
+            self.agent.duration = time.perf_counter() - self._exec_start_time
 
     def receive_util_message_request(self, payload):
         self.log.info(f'Received UTIL request message: {payload}')

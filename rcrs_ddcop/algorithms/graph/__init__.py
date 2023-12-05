@@ -8,6 +8,12 @@ def get_agent_order(agent_id):
     return agent_id  # int(agent_id.replace('a', ''))
 
 
+class Unsupported(Exception):
+
+    def __init__(self):
+        super().__init__('Operation is not implemented')
+
+
 class DynaGraph:
     """
     Base class for dynamic graph algorithms
@@ -67,15 +73,22 @@ class DynaGraph:
         return list(self.children) + list(self.pseudo_children)
 
     def start_dcop(self, timeout=False):
-        if timeout or self.can_start_dcop():
+        fully_connected = len(self.all_neighbors) == len(self.agent.agents_in_comm_range)
+        if not self.agent.value and (timeout or fully_connected):
             self.log.info(f'Starting DCOP from DIGCA')
             self.agent.execute_dcop()
             self.exec_started = True
         else:
             self.log.info(f'DCOP not started, waiting for {self.agent.new_agents}')
 
-    def can_start_dcop(self):
-        return len(self.all_neighbors) == len(self.agent.agents_in_comm_range)
+    def has_potential_parent(self):
+        raise Unsupported()
+
+    def has_potential_child(self):
+        raise Unsupported()
+
+    def has_potential_neighbor(self):
+        raise Unsupported()
 
     def report_connection(self, parent, child, constraint):
         # self.channel.basic_publish(exchange=messaging.COMM_EXCHANGE,
@@ -86,15 +99,6 @@ class DynaGraph:
         #                                'parent': parent,
         #                                'constraint': str(constraint),
         #                            }))
-        ...
-
-    def has_potential_parent(self):
-        ...
-
-    def has_potential_child(self):
-        ...
-
-    def has_potential_neighbor(self):
         ...
 
     def report_agent_disconnection(self, agent):

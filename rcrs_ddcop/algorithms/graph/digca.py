@@ -23,64 +23,61 @@ class DIGCA(DynaGraph):
 
     def __init__(self,  agent, timeout: float, max_num_of_neighbors: int = -1):
         super(DIGCA, self).__init__(agent)
-        self._has_sent_parent_available = False
         self.pinged_list_dict = {}
         self.state = State.INACTIVE
-        self.announceResponseList = deque()
         self.separator = deque()
+        self.announceResponseList = deque()
         self._pseudo_parent_request_mgs = {}
         self._parent_already_assigned_msgs = {}
         self._timeout_delay_in_seconds = timeout
         self._timeout_delay_start = None
         self._sent_announce_msg_list = deque()
+        self._pseudo_parent_req_msg_list = deque()
         self._max_num_neighbors = max_num_of_neighbors
 
     def on_time_step_changed(self):
         self._pseudo_parent_request_mgs.clear()
         self._parent_already_assigned_msgs.clear()
-        self._has_sent_parent_available = False
         self._timeout_delay_start = time.time()
-        # self._sent_announce_msg_list.clear()
+        self._pseudo_parent_req_msg_list.clear()
+        self._sent_announce_msg_list.clear()
+        self.announceResponseList.clear()
         self.exec_started = False
 
     def connect(self):
-        new_agents = self.get_potential_parents()
-        broadcast_list = set(new_agents) - set(self._sent_announce_msg_list)
-        if broadcast_list \
-                and not self.parent \
-                and self.has_potential_parent() \
-                and self.state == State.INACTIVE:
+        parents = self.get_potential_parents()
+        targets = set(parents) - set(self._sent_announce_msg_list)
+        if targets and not self.parent and parents:
             self.log.debug(f'Publishing Announce message...')
 
             # publish Announce message
-            targets = []
-            for a in broadcast_list:
-                if a not in self._sent_announce_msg_list:
-                    targets.append(a)
             if targets:
                 self._sent_announce_msg_list.extend(targets)
+                self.log.debug(f'Sending Announce messages to {targets}')
                 self.comm.broadcast_announce_message(targets)
 
-            # wait to receive responses
-            # self.comm.listen_to_network(duration=0.3)
-
-            # self.send_connection_requests()
-
-        # connection
         # period timeout check
-        elif not self.agent.value \
-                and not self.exec_started \
-                and self._timeout_delay_start \
-                and time.time() - self._timeout_delay_start > self._timeout_delay_in_seconds:
-            self.log.warning(f'DIGCA timeout, starting D-DCOP.')
-            self.start_dcop()
-            self._timeout_delay_start = None
+        # elif self.is_connection_timeout():
+        #     self.log.warning(f'DIGCA timeout, starting D-DCOP.')
+        #     self.start_dcop()
+        #     self._timeout_delay_start = None
 
-        elif self.parent:
-            for a in self.get_potential_parents():
-                if a not in broadcast_list:
-                    self.log.debug(f'Sending pseudo-parent request to {a}')
-                    self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
+        else:
+            for a in parents:
+                invalid_pp = self._pseudo_parent_req_msg_list + self._sent_announce_msg_list + self.all_neighbors
+                if a not in invalid_pp:
+                    self.send_pseudo_parent_request_message(a)
+
+    def send_pseudo_parent_request_message(self, a):
+        self.log.debug(f'Sending pseudo-parent request to {a}')
+        self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
+        self._pseudo_parent_req_msg_list.append(a)
+
+    def is_connection_timeout(self):
+        return not self.agent.value \
+            and not self.exec_started \
+            and self._timeout_delay_start \
+            and time.time() - self._timeout_delay_start > self._timeout_delay_in_seconds
 
     def send_connection_requests(self):
         self.log.debug(f'AnnounceResponse list in connect: {self.announceResponseList}')
@@ -109,20 +106,16 @@ class DIGCA(DynaGraph):
             self.comm.send_add_me_message(selected_agent, domain=self.agent.domain)
             self.state = State.ACTIVE
 
-        # send announce response ignored messages
+        # send pseudo-parent request message
         for a in set(agts + p_list):
             if a != selected_agent:
-                self.comm.send_pseudo_parent_request_message(a, domain=self.agent.domain)
+                self.send_pseudo_parent_request_message(a)
         self.announceResponseList.clear()
 
     def receive_announce(self, message):
         self.log.debug(f'Received announce: {message}')
         sender = message['payload']['agent_id']
 
-        # if self.state == State.INACTIVE \
-        #         and self.agent.agent_id < sender \
-        #         and (self._max_num_neighbors >= self.num_of_neighbors
-        #              or self._max_num_neighbors == -1):
         if self.agent.agent_id < sender:
             self.comm.send_announce_response(sender, len(self.children))
 
@@ -133,8 +126,6 @@ class DIGCA(DynaGraph):
 
         if sender not in self.announceResponseList:
             self.announceResponseList.append([sender, num_of_children])
-            # self.log.debug(f'AnnounceResponse list: {self.announceResponseList}')
-            # self.log.debug(f'response list check, {self.announceResponseList}, {self._sent_announce_msg_list}')
             if len(set(self._sent_announce_msg_list) - set([a[0] for a in self.announceResponseList])) == 0:
                 self.send_connection_requests()
 
@@ -142,12 +133,12 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received AddMe: {message}')
         sender = message['payload']['agent_id']
 
-        if self.state == State.INACTIVE and len(self.children) < MAX_OUT_DEGREE and sender not in self.children:
+        if len(self.children) < MAX_OUT_DEGREE and sender not in self.children:
             self.children.append(sender)
             if sender in self.pseudo_children:
                 self.pseudo_children.remove(sender)
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
-            self.comm.send_child_added_message(sender, domain=self.agent.domain)  # , separator=list(self.separator))
+            self.comm.send_child_added_message(sender, domain=self.agent.domain)
             self.log.debug(f'Added agent {sender} to children: {self.children}')
 
             # callbacks
@@ -155,20 +146,6 @@ class DIGCA(DynaGraph):
                 cb_types=[DynamicGraphCallback.CHILD_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
                 agent=sender,
             )
-
-            # update current graph
-            # self.channel.basic_publish(
-            #     exchange=messaging.COMM_EXCHANGE,
-            #     routing_key=f'{messaging.SIM_ENV_CHANNEL}',
-            #     body=messaging.create_add_graph_edge_message({
-            #         'agent_id': self.agent.agent_id,
-            #         'from': self.agent.agent_id,
-            #         'to': sender,
-            #     })
-            # )
-
-            # inform dashboard about the connection
-            # self.report_connection(parent=self.agent.agent_id, child=sender, constraint=constraint)
         else:
             self.log.debug(f'Rejected AddMe from agent: {sender}, sending AlreadyActive message')
             self.comm.send_already_active_message(sender)
@@ -177,33 +154,21 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received ChildAdded: {message}')
         sender = message['payload']['agent_id']
 
-        if self.state == State.ACTIVE and not self.parent:
+        if not self.parent:
             self.state = State.INACTIVE
             self.parent = sender
             if sender in self.pseudo_parents:
                 self.pseudo_parents.remove(sender)
             self.agent.add_neighbor_domain(sender, message['payload']['domain'])
-            # self.update_separator(message['payload']['separator'] + [sender])
             self.comm.send_parent_assigned_message(sender)
-            self.log.debug(f'Set parent node to agent {sender}')
             self._sent_announce_msg_list.remove(sender)
+            self.log.debug(f'Set parent node to agent {sender}')
 
             # callbacks
             self.fire_callbacks(
                 cb_types=[DynamicGraphCallback.PARENT_ASSIGNED, DynamicGraphCallback.AGENT_CONNECTED],
                 agent=sender,
             )
-
-            # update current graph
-            # self.channel.basic_publish(
-            #     exchange=messaging.COMM_EXCHANGE,
-            #     routing_key=f'{messaging.SIM_ENV_CHANNEL}',
-            #     body=messaging.create_add_graph_edge_message({
-            #         'agent_id': self.agent.agent_id,
-            #         'from': sender,
-            #         'to': self.agent.agent_id,
-            #     })
-            # )
 
             if self.agent.graph_traversing_order == 'bottom-up':
                 self.start_dcop()
@@ -219,7 +184,7 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received AlreadyActive: {message}')
         self.state = State.INACTIVE
 
-        # remove the sender from the Announce msg received list so that the sender can broadcast again
+        # remove the sender from the Announce msg received list so that the sender can receive Announce msg again
         self._sent_announce_msg_list.remove(sender)
 
     def receive_pseudo_parent_request(self, message):
@@ -240,8 +205,7 @@ class DIGCA(DynaGraph):
                 agent=sender,
             )
 
-            if self.can_start_dcop() and not self.agent.value:
-                self.start_dcop()
+            self.start_dcop()
 
     def receive_pseudo_child_added_message(self, message):
         sender = message['payload']['agent_id']
@@ -276,10 +240,7 @@ class DIGCA(DynaGraph):
         self._parent_already_assigned_msgs[sender] = message
         self.log.debug(f'Received parent already assigned message from {sender}')
 
-        if len(self._parent_already_assigned_msgs.keys()) == len(self.get_potential_children()) \
-                and not self.agent.value:
-            self._has_sent_parent_available = True
-            self.start_dcop()
+        self.start_dcop()
 
     def receive_separator_message(self, message):
         sender = message['payload']['agent_id']
@@ -324,17 +285,9 @@ class DIGCA(DynaGraph):
         return self.has_potential_child() or (not self.parent and self.has_potential_parent())
 
     def remove_agent(self, agent):
-        # if agent in self.separator:
-        #     self.log.debug(f'separator before update: {self.separator}, agent to remove = {agent}')
-        #     separator = list(self.separator)
-        #     separator.remove(agent)
-        #     self.update_separator(separator)
-        #     self.log.debug(f'separator after update: {self.separator}')
-
         if self.parent == agent:
             self.state = State.INACTIVE
             self.parent = None
-            self.pseudo_parents.clear()
         elif agent in self.children:
             self.children.remove(agent)
         elif agent in self.pseudo_parents:

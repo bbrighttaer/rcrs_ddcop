@@ -1,6 +1,20 @@
+import enum
+import time
+
 import numpy as np
 
 from rcrs_ddcop.algorithms.dcop import DCOP
+
+
+class CoCoAStates(enum.Enum):
+    IDLE = 'IDLE'
+    DONE = 'DONE'
+    ACTIVE = 'ACTIVE'
+    PROCESSING = 'PROCESSING'
+    HOLD = 'HOLD'
+
+    def __str__(self):
+        return self.value
 
 
 class LA_CoCoA(DCOP):
@@ -10,63 +24,52 @@ class LA_CoCoA(DCOP):
     traversing_order = 'top-down'
     name = 'cocoa'
 
-    IDLE = 'IDLE'
-    DONE = 'DONE'
-    ACTIVE = 'ACTIVE'
-    HOLD = 'HOLD'
-
     def __init__(self, *args, **kwargs):
         super(LA_CoCoA, self).__init__(*args, **kwargs)
         self._started = False
-        self._can_start = False
-        self.state = self.IDLE
+        self.exec_requested = False
+        self.state = CoCoAStates.IDLE
         self.cost_map = {}
         self._sent_inquiries_list = []
+        self._sent_update_msg_list = []
+        self._exec_start_time = None
 
     def on_time_step_changed(self):
         super().on_time_step_changed()
-        self._can_start = False
+        self.exec_requested = False
         self._started = False
-        self.state = self.IDLE
+        self.state = CoCoAStates.IDLE
         self.cost_map.clear()
         self._sent_inquiries_list.clear()
+        self._sent_update_msg_list.clear()
+        self._exec_start_time = None
 
     def execute_dcop(self):
         self.log.info('Initiating CoCoA')
 
         neighbors = self.graph.neighbors
-        if not self.value and self.state in [self.IDLE, self.HOLD]:
+        if not self.value and self.state in [CoCoAStates.IDLE, CoCoAStates.HOLD]:
             self.report_state_change_to_dashboard()
 
             # when agent is isolated
             if len(neighbors) == 0:
                 self.select_random_value()
 
-            # subsequent execution in the resolution process
-            elif self._can_start:
-                self._can_start = False
-                self._send_inquiry_messages()
-
-            # when agent is root
-            elif not self.graph.parent and self.graph.neighbors:
-                self._send_inquiry_messages()
-
             # when agent has a parent:
-            elif self.graph.parent:
-                self.send_execution_request_message(
-                    recipient=self.graph.parent,
-                    data={
-                        'agent_id': self.agent.agent_id,
-                    }
-                )
-        elif self.state == self.DONE:
-            self.log.info(f'Sending state={self.state} to neighbors={neighbors}')
-            for child in neighbors:
-                self.send_update_state_message(child, {
-                    'agent_id': self.agent.agent_id,
-                    'state': self.state,
-                    'value': self.value,
-                })
+            if self.graph.parent and self.neighbor_states.get(str(self.graph.parent)) != CoCoAStates.DONE.value:
+                if not self.exec_requested:
+                    self.send_execution_request_message(
+                        recipient=self.graph.parent,
+                        data={
+                            'agent_id': self.agent.agent_id,
+                        }
+                    )
+                else:
+                    self.log.debug('Parent execution already requested')
+            else:
+                self._send_inquiry_messages()
+        elif self.state == CoCoAStates.DONE:
+            self.send_update_state_message()
         elif set(self.graph.neighbors) - set(self._sent_inquiries_list):
             self.log.info('Sending remaining inquiry message')
             self._send_inquiry_messages()
@@ -74,15 +77,16 @@ class LA_CoCoA(DCOP):
             self.log.debug(f'Ignoring execution, current state = {self.state}')
 
     def _send_inquiry_messages(self):
-        self.state = self.ACTIVE
+        self._exec_start_time = time.perf_counter()
+        self.state = CoCoAStates.ACTIVE
         neighbors = set(self.graph.neighbors) - set(self._sent_inquiries_list)
         self.log.info(f'Sending Inquiry messages to: {neighbors}')
         for agent in neighbors:
+            self._sent_inquiries_list.append(agent)
             self._send_inquiry_message(agent, {
                 'agent_id': self.agent.agent_id,
                 'domain': self.domain,
             })
-            self._sent_inquiries_list.append(agent)
 
     def select_value(self):
         """
@@ -91,6 +95,8 @@ class LA_CoCoA(DCOP):
         """
         if self.value:
             return
+
+        self.state = CoCoAStates.PROCESSING
 
         total_cost_dict = {}
 
@@ -112,7 +118,7 @@ class LA_CoCoA(DCOP):
         if not total_cost_dict:
             total_cost_dict = {value: {'cost': 0., 'params': {}} for value in self.domain}
 
-        self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
+        # self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
 
         # apply unary constraints
         world = self.get_belief()
@@ -127,7 +133,7 @@ class LA_CoCoA(DCOP):
         if self.num_look_ahead_steps > 0 and self.model_trainer.has_trained:
             self.agent.look_ahead_completed_cb(world)
 
-        self.log.info(f'Total cost dict: {total_cost_dict}')
+        # self.log.info(f'Total cost dict: {total_cost_dict}')
 
         costs = np.array([total_cost_dict[d]['cost'] for d in total_cost_dict])
         vals_list = list(total_cost_dict.keys())
@@ -139,25 +145,22 @@ class LA_CoCoA(DCOP):
         self.log.info(f'Best params: {best_params}, {self.value}')
 
         # update agent
-        self.state = self.DONE
+        self.state = CoCoAStates.DONE
         self.report_state_change_to_dashboard()
 
         # send value and update msgs
-        for neighbor in self.graph.all_neighbors:
+        for neighbor in self.graph.neighbors:
             self.send_value_state_message(neighbor, {
                 'agent_id': self.agent.agent_id,
                 'value': self.value,
             })
-        for child in self.graph.neighbors:
-            self.send_update_state_message(child, {
-                'agent_id': self.agent.agent_id,
-                'state': self.state,
-            })
+        self.send_update_state_message()
 
         self.cost_map.clear()
-        self.params = best_params
         self.value_selection(self.value)
         # self.calculate_and_report_cost(best_params)
+        if self._exec_start_time:
+            self.agent.duration = time.perf_counter() - self._exec_start_time
 
     def select_random_value(self):
         # call select_value to use look-ahead model
@@ -168,13 +171,23 @@ class LA_CoCoA(DCOP):
         all_neighbors_connected = not self.agent.new_agents
         return (
                 all_neighbors_connected and
-                self.state == self.ACTIVE and
+                self.state == CoCoAStates.ACTIVE and
                 self.graph.neighbors and
-                len(self.cost_map) == len(self.graph.neighbors)
+                0 < len(self.cost_map) == len(self.graph.neighbors)
         )
 
-    def send_update_state_message(self, recipient, data):
-        self.comm.send_update_state_message(recipient, data)
+    def send_update_state_message(self):
+        neighbors = self.graph.neighbors
+        self.log.debug(f'Sending state={self.state} to neighbors={neighbors}')
+        for child in neighbors:
+            if child not in self._sent_update_msg_list:
+                self.comm.send_update_state_message(child, {
+                    'agent_id': self.agent.agent_id,
+                    'state': self.state.value,
+                    })
+                self._sent_update_msg_list.append(child)
+            else:
+                self.log.debug(f'State update already sent to {child}')
 
     def send_value_state_message(self, recipient, data):
         self.comm.send_cocoa_value_message(recipient, data)
@@ -240,8 +253,7 @@ class LA_CoCoA(DCOP):
         if sender in self.graph.neighbors:
             self.neighbor_states[str(sender)] = data['state']
 
-        if data['state'] == self.DONE and self.value is None:
-            self._can_start = True
+        if data['state'] == CoCoAStates.DONE.value and self.value is None:
             self.execute_dcop()
 
     def receive_cocoa_value_message(self, payload):

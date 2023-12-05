@@ -228,7 +228,6 @@ class FireBrigadeAgent(Agent):
         start = time.perf_counter()
         self.current_time_step = time_step
         self.bdi_agent.domain = self.domain
-        self.bdi_agent.on_time_step_changed(time_step)
         self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
 
         # if time_step < int(self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY)):
@@ -249,7 +248,7 @@ class FireBrigadeAgent(Agent):
         neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
         self.bdi_agent.remove_unreachable_neighbors()
-        self.bdi_agent.busy_neighbors.clear()
+        self.bdi_agent.on_time_step_changed(time_step)
         self.bdi_agent.process_paused_msgs()
 
         targets = []
@@ -293,7 +292,9 @@ class FireBrigadeAgent(Agent):
         self.deliberate(state, time_step)
         time_taken = time.perf_counter() - start
         self.bdi_agent.record_deliberation_time(time_step, time_taken)
-        self.Log.debug(f'Deliberation time = {time_taken}')
+        duration = self.bdi_agent.duration or 0.
+        self.bdi_agent.record_local_opt_time(time_step, duration)
+        self.Log.debug(f'Deliberation time = {time_taken}, local optimisation time = {duration}')
 
         # reset building information at the end of every trajectory
         # if time_step % self.trajectory_len == 0:

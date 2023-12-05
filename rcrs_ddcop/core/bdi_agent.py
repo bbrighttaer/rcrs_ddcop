@@ -35,11 +35,13 @@ class BDIAgent(object):
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
         self.experience_buffer = ExperienceBuffer(lbl=self.label, log=self.log)
-        self._timeout = 3.5
+        self._timeout = 4.7
         self.look_ahead_tuples = None
         self.all_agents_selected_vals = {}
         self.past_states = deque(maxlen=3)
-        self.time_step = 0
+
+        # keep track of the local time taken to complete optimisation
+        self.duration = None
 
         self._decision_timeout_count = 0
 
@@ -62,7 +64,7 @@ class BDIAgent(object):
 
         # create instances of main components
         self.comm = AgentPseudoComm(self)
-        self.graph = DIGCA(self, timeout=3.5, max_num_of_neighbors=3)
+        self.graph = DIGCA(self, timeout=self._timeout - .5, max_num_of_neighbors=3)
         self.info_share = NeighborInfoSharing(self)
         self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
 
@@ -83,6 +85,10 @@ class BDIAgent(object):
     @property
     def com_channel(self):
         return self._rcrs_agent.com_channel
+
+    @property
+    def time_step(self):
+        return self._rcrs_agent.current_time_step
 
     def set_state(self, state, time_step):
         exp_keys = []
@@ -216,6 +222,8 @@ class BDIAgent(object):
         else:
             self.log.info('waiting for potential connections')
 
+        self.comm.threadsafe_execution(self.graph.connect)
+
         # wait for value section or timeout
         if not self._value_selection_evt.wait(timeout=self._timeout):
             self._decision_timeout_count += 1
@@ -231,7 +239,7 @@ class BDIAgent(object):
         return self._value, self.dcop.cost
 
     def on_time_step_changed(self, time_step):
-        self.current_time_step = time_step
+        self.duration = None
         # time step changed callbacks
         self.dcop.on_time_step_changed()
         self.graph.on_time_step_changed()
@@ -372,12 +380,14 @@ class BDIAgent(object):
         self.log.info(f'Initializing agent {self.agent_id}')
         while not self._terminate:
             self.comm.listen_to_network()
-            self.graph.connect()
             self.dcop.resolve_value()
         self.log.info(f'Agent {self.agent_id} is shutting down. Adios!')
 
     def record_deliberation_time(self, t, val):
         self.dcop.record_agent_metric('deliberation time', t, val)
+
+    def record_local_opt_time(self, t, val):
+        self.dcop.record_agent_metric('optimisation time', t, val)
 
     def record_agent_action(self, action, t, val):
         self.dcop.record_agent_metric(action, t, val)
