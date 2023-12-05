@@ -7,6 +7,8 @@ from typing import Optional, Tuple, Callable
 
 import requests
 
+from rcrs_ddcop.comm import CommunicationLayer, CommProtocol
+
 
 def find_local_ip():
     # from https://stackoverflow.com/a/28950776/261821
@@ -24,7 +26,7 @@ def find_local_ip():
     return IP
 
 
-class HttpCommunicationLayer:
+class HttpCommunicationLayer(CommunicationLayer):
     """
     Adapted from pyDCOP communication module.
 
@@ -45,10 +47,12 @@ class HttpCommunicationLayer:
 
     def __init__(
             self,
+            agent_id,
             logger,
             on_message_handler: Callable,
             address_port: Optional[Tuple[str, int]] = None,
     ):
+        self.protocol = CommProtocol.HTTP
         self.on_message_handler = on_message_handler
         if not address_port:
             self._address = find_local_ip(), 9000
@@ -61,6 +65,9 @@ class HttpCommunicationLayer:
 
         self.logger = logger
         self._start_server()
+
+    def listen_to_network(self, duration=0.1):
+        ...
 
     def shutdown(self):
         self.logger.info(f'Shutting down HttpCommunicationLayer on {self.address}')
@@ -86,6 +93,9 @@ class HttpCommunicationLayer:
     def on_post_message(self, msg):
         msg = json.loads(msg)
         self.on_message_handler(msg)
+
+    def threadsafe_execution(self, func: Callable):
+        Thread(target=func).start()
 
     @property
     def address(self) -> Tuple[str, int]:

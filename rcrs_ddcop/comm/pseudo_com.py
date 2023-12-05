@@ -5,7 +5,8 @@ from multiprocessing import Queue, Manager
 from threading import Thread
 from typing import Callable, List
 
-from rcrs_ddcop.comm import messaging
+from rcrs_ddcop.comm import messaging, CommProtocol
+from rcrs_ddcop.comm.amqp_comm import AMQPCommunicationLayer
 from rcrs_ddcop.comm.http_comm import HttpCommunicationLayer, send_http_msg
 
 BROKER_URL = '127.0.0.1'
@@ -43,34 +44,50 @@ class AgentPseudoComm(object):
     Pseudo-communication layer for agents.
     """
 
-    def __init__(self, agent: 'BDIAgent'):
+    def __init__(self, agent: 'BDIAgent', comm_protocol: CommProtocol):
         self._bdi_agt = agent
         self.agent_id = agent.agent_id
         self.Log = agent.log
+        self.comm_protocol = comm_protocol
+        self.Log.info(f'Using {self.comm_protocol.value} communication layer')
 
-        ip_addr = '127.0.0.1'
-        self.http_comm = HttpCommunicationLayer(
-            self.Log,
-            address_port=(ip_addr, agent.com_port),
-            on_message_handler=agent.handle_message,
-        )
+        if comm_protocol == CommProtocol.HTTP:
+            ip_addr = '127.0.0.1'
+            self.comm_svc = HttpCommunicationLayer(
+                self.agent_id,
+                self.Log,
+                address_port=(ip_addr, agent.com_port),
+                on_message_handler=agent.handle_message,
+            )
 
-        # register agent's message handler
-        self._bdi_agt.com_channel.register_agent_ip_port(self.agent_id, ip_addr, agent.com_port)
+            # register agent's message handler
+            self._bdi_agt.com_channel.register_agent_ip_port(self.agent_id, ip_addr, agent.com_port)
+        else:  # amqp
+            self.comm_svc = AMQPCommunicationLayer(
+                self.agent_id,
+                self.Log,
+                on_message_handler=agent.handle_message,
+                address_port=None,
+            )
 
     def listen_to_network(self, duration=0.1):
-        ...
+        self.comm_svc.listen_to_network(duration)
 
-    def _send_to_agent(self, agent_id, body):
+    def send_to_agent(self, agent_id, body):
         # intercept message and add current time step information
         data = json.loads(body)
         data['time_step'] = self._bdi_agt.time_step
         body = json.dumps(data)
-        self._bdi_agt.com_channel.send(msg=Message(agent_id, body))
+
+        # determine service for sending message
+        if self.comm_protocol == CommProtocol.HTTP:
+            self._bdi_agt.com_channel.send(msg=Message(agent_id, body))
+        else:
+            self.comm_svc.publish(agent_id, body)
 
     def broadcast_announce_message(self, neighboring_agents: List[int]):
         for agt in neighboring_agents:
-            self._send_to_agent(
+            self.send_to_agent(
                 agent_id=agt,
                 body=messaging.create_announce_message({
                     'agent_id': self.agent_id,
@@ -78,7 +95,7 @@ class AgentPseudoComm(object):
             )
 
     def send_add_me_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_add_me_message({
                 'agent_id': self.agent_id,
@@ -87,7 +104,7 @@ class AgentPseudoComm(object):
         )
 
     def send_pseudo_parent_request_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_pseudo_parent_reqeust_message({
                 'agent_id': self.agent_id,
@@ -96,7 +113,7 @@ class AgentPseudoComm(object):
         )
 
     def send_announce_response(self, agent_id, num_of_children):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_announce_response_message({
                 'agent_id': self.agent_id,
@@ -105,7 +122,7 @@ class AgentPseudoComm(object):
         )
 
     def send_child_added_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_child_added_message({
                 'agent_id': self.agent_id,
@@ -114,7 +131,7 @@ class AgentPseudoComm(object):
         )
 
     def send_already_active_message(self, agent_id):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_already_active_message({
                 'agent_id': self.agent_id,
@@ -122,7 +139,7 @@ class AgentPseudoComm(object):
         )
 
     def send_parent_assigned_message(self, agent_id):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_parent_assigned_message({
                 'agent_id': self.agent_id,
@@ -130,7 +147,7 @@ class AgentPseudoComm(object):
         )
 
     def send_parent_already_assigned_message(self, agent_id):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_parent_already_assigned_message({
                 'agent_id': self.agent_id,
@@ -138,7 +155,7 @@ class AgentPseudoComm(object):
         )
 
     def send_util_message(self, agent_id, util):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_util_message({
                 'agent_id': self.agent_id,
@@ -147,7 +164,7 @@ class AgentPseudoComm(object):
         )
 
     def send_dpop_value_message(self, agent_id, value):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_dpop_value_message({
                 'agent_id': self.agent_id,
@@ -156,7 +173,7 @@ class AgentPseudoComm(object):
         )
 
     def send_util_request_message(self, agent_id):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_request_util_message({
                 'agent_id': self.agent_id,
@@ -164,37 +181,37 @@ class AgentPseudoComm(object):
         )
 
     def send_update_state_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_update_state_message(data)
         )
 
     def send_execution_request_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_execution_request_message(data)
         )
 
     def send_cost_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_cost_message(data)
         )
 
     def send_inquiry_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_inquiry_message(data),
         )
 
     def send_cocoa_value_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_cocoa_value_message(data),
         )
 
     def send_pseudo_child_added_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_pseudo_child_added_message({
                 'agent_id': self.agent_id,
@@ -203,28 +220,28 @@ class AgentPseudoComm(object):
         )
 
     def threadsafe_execution(self, func: Callable):
-        Thread(target=func).start()
+        self.comm_svc.threadsafe_execution(func)
 
     def send_lsla_inquiry_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_lsla_inquiry_message(data),
         )
 
     def send_lsla_util_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_lsla_util_message(data),
         )
 
     def send_busy_message(self, agent_id, data):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_busy_message(data),
         )
 
     def send_exp_history_disclosure_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_exp_history_disclosure_message({
                 'agent_id': self.agent_id,
@@ -233,7 +250,7 @@ class AgentPseudoComm(object):
         )
 
     def send_exp_sharing_with_request_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_exp_sharing_with_request_message({
                 'agent_id': self.agent_id,
@@ -242,7 +259,7 @@ class AgentPseudoComm(object):
         )
 
     def send_exp_sharing_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_exp_sharing_message({
                 'agent_id': self.agent_id,
@@ -251,7 +268,7 @@ class AgentPseudoComm(object):
         )
 
     def send_neighbor_update_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_neighbor_update_message({
                 'agent_id': self.agent_id,
@@ -260,7 +277,7 @@ class AgentPseudoComm(object):
         )
 
     def send_separator_message(self, agent_id, **kwargs):
-        self._send_to_agent(
+        self.send_to_agent(
             agent_id=agent_id,
             body=messaging.create_separator_message({
                 'agent_id': self.agent_id,

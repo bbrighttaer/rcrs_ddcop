@@ -1,5 +1,5 @@
 police_agents=0
-fire_agents=9
+fire_agents=12
 ambulance_agents=0
 police_police_offices=0
 ambulance_centers=0

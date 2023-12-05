@@ -133,7 +133,7 @@ class DIGCA(DynaGraph):
         self.log.debug(f'Received AddMe: {message}')
         sender = message['payload']['agent_id']
 
-        if len(self.children) < MAX_OUT_DEGREE and sender not in self.children:
+        if sender not in self.children:
             self.children.append(sender)
             if sender in self.pseudo_children:
                 self.pseudo_children.remove(sender)
@@ -146,9 +146,9 @@ class DIGCA(DynaGraph):
                 cb_types=[DynamicGraphCallback.CHILD_ADDED, DynamicGraphCallback.AGENT_CONNECTED],
                 agent=sender,
             )
-        else:
-            self.log.debug(f'Rejected AddMe from agent: {sender}, sending AlreadyActive message')
-            self.comm.send_already_active_message(sender)
+        # else:
+        #     self.log.debug(f'Rejected AddMe from agent: {sender}, sending AlreadyActive message')
+        #     self.comm.send_already_active_message(sender)
 
     def receive_child_added(self, message):
         self.log.debug(f'Received ChildAdded: {message}')

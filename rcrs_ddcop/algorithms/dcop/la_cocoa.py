@@ -253,7 +253,7 @@ class LA_CoCoA(DCOP):
         if sender in self.graph.neighbors:
             self.neighbor_states[str(sender)] = data['state']
 
-        if data['state'] == CoCoAStates.DONE.value and self.value is None:
+        if not self.agent.new_agents and data['state'] == CoCoAStates.DONE.value and self.value is None:
             self.execute_dcop()
 
     def receive_cocoa_value_message(self, payload):

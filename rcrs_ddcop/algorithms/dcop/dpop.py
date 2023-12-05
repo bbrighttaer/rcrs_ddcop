@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 
 from rcrs_ddcop.algorithms.dcop import DCOP
@@ -12,6 +14,7 @@ class DPOP(DCOP):
 
     def __init__(self, *args, **kwargs):
         super(DPOP, self).__init__(*args, **kwargs)
+        self._exec_start_time = None
         self._util_msg_requested = False
         self.neighbor_domains = self.agent.neighbor_domains
         self.util_messages = {}
@@ -26,6 +29,7 @@ class DPOP(DCOP):
             self.arg_optimization_op = np.argmin
 
     def on_time_step_changed(self):
+        self._exec_start_time = None
         self.cost = None
         self.X_ij = None
         self.value = None
@@ -64,6 +68,7 @@ class DPOP(DCOP):
             self.log.warn('No connected parent to receive UTIL msg')
 
     def execute_dcop(self):
+        self._exec_start_time = time.perf_counter()
         if len(self.graph.neighbors) == 0:
             self.select_random_value()
 
@@ -76,13 +81,13 @@ class DPOP(DCOP):
             self.send_util_msg()
 
         elif not self._util_msg_requested:
-            self.log.info('Requesting UTIL msgs from children')
             self._send_util_requests_to_children()
             self._util_msg_requested = True
 
     def _send_util_requests_to_children(self):
         # get agents that are yet to send UTIL msgs
         new_agents = set(self.graph.children) - set(self.util_messages.keys())
+        self.log.info(f'Requesting UTIL msgs from children = {new_agents}')
 
         for child in new_agents:
             self.comm.send_util_request_message(child)
@@ -105,9 +110,10 @@ class DPOP(DCOP):
         # create world-view from local belief and shared belief for reasoning
         context = self.get_belief()
 
-        if self.graph.parent and self.X_ij is not None:
-            parent_value = self.neighbor_values[self.graph.parent]
-            j = self.neighbor_domains[self.graph.parent].index(parent_value)
+        parent = self.graph.parent
+        if parent and parent in self.neighbor_values and self.X_ij is not None:
+            parent_value = self.neighbor_values[parent]
+            j = self.neighbor_domains[parent].index(parent_value)
             self.util_vec = self.X_ij[:, j].reshape(-1, )
 
         # apply unary constraints
@@ -137,6 +143,9 @@ class DPOP(DCOP):
                 agent_id=child,
                 value=self.value,
             )
+
+        if self._exec_start_time:
+            self.agent.duration = time.perf_counter() - self._exec_start_time
 
     def receive_util_message(self, payload):
         self.log.info(f'Received util message: {payload}')

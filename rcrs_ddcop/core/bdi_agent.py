@@ -9,7 +9,7 @@ from rcrs_ddcop.algorithms.dcop.dpop import DPOP  # noqa
 from rcrs_ddcop.algorithms.dcop.la_cocoa import LA_CoCoA  # noqa
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.algorithms.graph.info_sharing import NeighborInfoSharing
-from rcrs_ddcop.comm import messaging
+from rcrs_ddcop.comm import messaging, CommProtocol
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
 from rcrs_ddcop.core.enums import InfoSharingType
 from rcrs_ddcop.core.experience import ExperienceBuffer
@@ -63,10 +63,10 @@ class BDIAgent(object):
         self.paused_messages = deque()
 
         # create instances of main components
-        self.comm = AgentPseudoComm(self)
-        self.graph = DIGCA(self, timeout=self._timeout - .5, max_num_of_neighbors=3)
+        self.comm = AgentPseudoComm(self, CommProtocol.AMQP)
+        self.graph = DIGCA(self, timeout=self._timeout - .5, max_num_of_neighbors=4)
         self.info_share = NeighborInfoSharing(self)
-        self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label)
+        self.dcop = DPOP(self, self.on_value_selected, label=self.label)
 
         self.log.info('Ready...')
 
