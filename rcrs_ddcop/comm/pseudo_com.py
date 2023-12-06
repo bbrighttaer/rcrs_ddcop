@@ -309,8 +309,6 @@ class CommChannel:
         Thread(target=self._start).start()
 
     def _start(self):
-        print('Communication channel activated')
-
         while True:
             # get message from channel
             msg: Message = self._channel.get()

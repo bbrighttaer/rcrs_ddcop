@@ -72,8 +72,16 @@ class DPOP(DCOP):
         if len(self.graph.neighbors) == 0:
             self.select_random_value()
 
-        # start sending UTIL when this node is a leaf
-        elif self.graph.parent and not self.graph.children:
+        # ensure all possible connections are established first
+        agts = self.agent.new_agents
+        if agts:
+            self.log.info(f'DPOP execution cannot continue, still waiting for {agts} to connect')
+            return
+
+        # start sending UTIL when this node is a leaf or a parent with all utils ready to forward
+        elif self.graph.parent and (
+                not self.graph.children or len(self.util_messages) == len(self.graph.children)
+        ):
             self.log.info('Initiating DPOP...')
             self.X_ij = None
 
@@ -94,13 +102,13 @@ class DPOP(DCOP):
 
     def can_resolve_agent_value(self) -> bool:
         # agent should have received util msgs from all children
-        can_resolve = self.value is None and (
+        can_resolve = self.value is None and (not self.agent.new_agents) and (
                 (
                         self.graph.parent is None
                         and self.util_messages
                         and len(self.util_messages) == len(self.graph.children)
                 ) or (
-                       self.X_ij is not None and self.graph.parent in self.neighbor_values
+                        self.X_ij is not None and self.graph.parent in self.neighbor_values
                 )
         )
 
@@ -161,7 +169,7 @@ class DPOP(DCOP):
             self.util_vec += np.array(util)
 
         # send to parent or request outstanding UTILs from children
-        if len(self.util_messages) == len(self.graph.children) and self.graph.parent:
+        if len(self.util_messages) == len(self.graph.children) and self.graph.parent and not self.agent.new_agents:
             self.send_util_msg()
         else:
             # reqeust util msgs from children yet to submit theirs
