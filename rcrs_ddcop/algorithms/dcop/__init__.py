@@ -116,8 +116,12 @@ class DCOP:
         self.neighbor_states.clear()
         self.neighbor_values.clear()
         self.steps += 1
+        self.on_alg_time_step_changed()
 
     # ---------------- Algorithm specific methods ----------------------- #
+
+    def on_alg_time_step_changed(self):
+        ...
 
     def connection_extra_args(self) -> dict:
         """

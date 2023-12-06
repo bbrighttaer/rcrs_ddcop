@@ -28,15 +28,12 @@ class DPOP(DCOP):
             self.optimization_op = np.min
             self.arg_optimization_op = np.argmin
 
-    def on_time_step_changed(self):
+    def on_alg_time_step_changed(self):
         self._exec_start_time = None
-        self.cost = None
         self.X_ij = None
-        self.value = None
         self.util_messages.clear()
         self._util_msg_requested = False
         self.util_vec = np.array([0.] * len(self.domain))
-        self.neighbor_values.clear()
 
     def send_util_msg(self):
         # create world-view from local belief and shared belief for reasoning

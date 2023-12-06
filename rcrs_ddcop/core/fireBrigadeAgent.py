@@ -1,25 +1,19 @@
-import os.path
 import random
-import threading
+import random
 import threading
 import time
 from collections import defaultdict
-from itertools import chain
-from threading import Event
 from typing import List
 
 import numpy as np
 import pandas as pd
 import torch
-from rcrs_core.entities.fireBrigade import FireBrigadeEntity
-from sklearn.metrics.pairwise import cosine_similarity
 from rcrs_core.agents.agent import Agent
 from rcrs_core.commands.Command import Command
 from rcrs_core.connection import URN, RCRSProto_pb2
-from rcrs_core.constants import kernel_constants
-from rcrs_core.entities.area import Area
 from rcrs_core.entities.building import Building
 from rcrs_core.entities.entity import Entity
+from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.human import Human
 from rcrs_core.entities.refuge import Refuge
 from rcrs_core.entities.road import Road
@@ -28,11 +22,10 @@ from rcrs_core.worldmodel.worldmodel import WorldModel
 
 from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
-from rcrs_ddcop.core.data import world_to_state, state_to_dict
+from rcrs_ddcop.core.data import world_to_state
 from rcrs_ddcop.core.enums import Fieryness
-from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_agents_in_comm_range_ids, \
-    neighbor_constraint, get_road_score, inspect_buildings_for_domain, euclidean_distance, get_human_score, \
-    create_update_look_ahead_tuples
+from rcrs_ddcop.utils.common_funcs import distance, get_agents_in_comm_range_ids, \
+    euclidean_distance, create_update_look_ahead_tuples
 from rcrs_ddcop.utils.logger import Logger
 
 WATER_OUT = 1000
@@ -420,7 +413,8 @@ class FireBrigadeAgent(Agent):
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
 
-        if num_assigned > 2 or entity.get_fieryness() > Fieryness.BURNING_SEVERELY:
+        # reduce banding together and exclude beyond buildings based on fieryness
+        if num_assigned > 1 or entity.get_fieryness() > Fieryness.BURNING_SEVERELY:
             return 10000.
 
         if entity.get_urn() == Building.urn:

@@ -34,8 +34,7 @@ class LA_CoCoA(DCOP):
         self._sent_update_msg_list = []
         self._exec_start_time = None
 
-    def on_time_step_changed(self):
-        super().on_time_step_changed()
+    def on_alg_time_step_changed(self):
         self.exec_requested = False
         self._started = False
         self.state = CoCoAStates.IDLE
@@ -149,7 +148,7 @@ class LA_CoCoA(DCOP):
         self.report_state_change_to_dashboard()
 
         # send value and update msgs
-        for neighbor in self.graph.neighbors:
+        for neighbor in self.graph.all_neighbors:
             self.send_value_state_message(neighbor, {
                 'agent_id': self.agent.agent_id,
                 'value': self.value,
@@ -261,7 +260,7 @@ class LA_CoCoA(DCOP):
         data = payload['payload']
         sender = data['agent_id']
         value = data['value']
-        self.neighbor_values[str(sender)] = value
+        self.neighbor_values[sender] = value
         self.on_state_value_selection(sender, value)
 
     def receive_execution_request_message(self, payload):
