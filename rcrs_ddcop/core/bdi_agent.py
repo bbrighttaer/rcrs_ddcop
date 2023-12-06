@@ -38,7 +38,10 @@ class BDIAgent(object):
         self._timeout = 4.7
         self.look_ahead_tuples = None
         self.all_agents_selected_vals = {}
-        self.past_states = deque(maxlen=3)
+
+        # number of states to accumulate as input to model
+        self.past_window_size = 3
+        self.past_states = deque(maxlen=self.past_window_size)
 
         # keep track of the local time taken to complete optimisation
         self.duration = None
@@ -66,7 +69,12 @@ class BDIAgent(object):
         self.comm = AgentPseudoComm(self, CommProtocol.AMQP)
         self.graph = DIGCA(self, timeout=self._timeout - .5, max_num_of_neighbors=4)
         self.info_share = NeighborInfoSharing(self)
-        self.dcop = LA_CoCoA(self, self.on_value_selected, label=self.label, look_ahead_steps=0)
+        self.dcop = LA_CoCoA(
+            self, self.on_value_selected,
+            label=self.label,
+            look_ahead_steps=0,
+            past_window_size=self.past_window_size,
+        )
 
         self.log.info('Ready...')
 

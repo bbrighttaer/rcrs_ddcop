@@ -8,7 +8,7 @@ from rcrs_core.worldmodel.worldmodel import WorldModel
 from torch_geometric.data import Data
 
 from rcrs_ddcop.core.data import world_to_state, state_to_world, merge_beliefs
-from rcrs_ddcop.core.nn import XGBTrainer
+from rcrs_ddcop.core.model_trainers import XGBTrainer
 
 
 class DCOP:
@@ -18,7 +18,8 @@ class DCOP:
     traversing_order = None
     name = 'dcop-base'
 
-    def __init__(self, agent, on_value_selected: Callable, label: str = None, look_ahead_steps: int = 0):
+    def __init__(self, agent, on_value_selected: Callable, label: str = None,
+                 look_ahead_steps: int = 0, past_window_size: int = 3):
         self.label = label or agent.agent_id
         self.log = agent.log
         self.agent = agent
@@ -38,15 +39,14 @@ class DCOP:
         self.neighbor_values = {}
 
         self.num_look_ahead_steps = look_ahead_steps
-        self.past_window_size = 3
-        self.future_window_size = 1
+        self.past_window_size = past_window_size
         self.model_trainer = XGBTrainer(
-            label=self.label,
+            label=self.label + '-' + self.name,
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
             input_dim=5,
             past_window_size=self.past_window_size,
-            future_window_size=self.future_window_size,
+            future_window_size=1,
             rounds=500,
             trajectory_len=self.agent.trajectory_len,
         )
@@ -91,6 +91,7 @@ class DCOP:
         past_states = self.agent.past_states
         if (self.num_look_ahead_steps > 0 and len(past_states) == self.past_window_size
                 and self.model_trainer.normalizer):
+            # get prediction about the future steps
             x = [state.x.numpy() for state in past_states]
             x = np.concatenate(x, axis=1)
             x = self.model_trainer.look_ahead_prediction(x, self.num_look_ahead_steps)
@@ -98,14 +99,21 @@ class DCOP:
             # get copy of current belief and update entities with predicted states
             state = world_to_state(self.agent.belief)
             belief = state_to_world(state)
+
+            # convert predicted vector to state
             x = torch.from_numpy(x)
             predicted_state = Data(
                 x=x,
                 nodes_order=state.nodes_order,
                 node_urns=state.node_urns,
             )
+
+            # convert predicted state to world
             predicted_world = state_to_world(predicted_state)
+
+            # merge beliefs
             belief = merge_beliefs(belief, predicted_world)
+
             return belief
         else:
             return self.agent.belief

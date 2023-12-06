@@ -39,6 +39,7 @@ MAX_AGENT_DENSITY = 3
 EPSILON = eps = 1e-20
 VALUE_CHANGE_COST = 10
 CRITICAL_TEMPERATURE_THRESHOLD = 300
+RANDOM_SEED = 0
 
 
 def check_rescue_task(targets: List[Entity]) -> bool:
@@ -80,7 +81,7 @@ class FireBrigadeAgent(Agent):
         self.domain = {}
 
     def _set_seed(self):
-        seed = self.agent_id.get_value()
+        seed = self.agent_id.get_value() + RANDOM_SEED
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)

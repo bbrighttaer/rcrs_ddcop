@@ -357,7 +357,7 @@ class XGBTrainer:
     def __call__(self, *args, **kwargs):
         """Trains the prediction model"""
         # ensure there is enough train_data to sample from
-        if len(self.experience_buffer) < 100:
+        if len(self.experience_buffer) < 1000:
             return
 
         with self:
