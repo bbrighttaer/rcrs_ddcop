@@ -18,7 +18,7 @@ class DCOP:
     traversing_order = None
     name = 'dcop-base'
 
-    def __init__(self, agent, on_value_selected: Callable, label: str = None):
+    def __init__(self, agent, on_value_selected: Callable, label: str = None, look_ahead_steps: int = 0):
         self.label = label or agent.agent_id
         self.log = agent.log
         self.agent = agent
@@ -37,7 +37,7 @@ class DCOP:
         self.neighbor_states = {}
         self.neighbor_values = {}
 
-        self.num_look_ahead_steps = 0
+        self.num_look_ahead_steps = look_ahead_steps
         self.past_window_size = 3
         self.future_window_size = 1
         self.model_trainer = XGBTrainer(
@@ -50,7 +50,7 @@ class DCOP:
             rounds=500,
             trajectory_len=self.agent.trajectory_len,
         )
-        self.time_step = 0
+        self.steps = 0
         self.training_cycle = 5
 
     @property
@@ -76,7 +76,7 @@ class DCOP:
     def value_selection(self, val):
         # check for model training time step
         if self.model_trainer.can_train and not self.model_trainer.is_training:  # avoid multiple training calls
-            if self.time_step % self.training_cycle == 0:
+            if self.steps % self.training_cycle == 0:
                 threading.Thread(target=self.model_trainer).start()
         self._on_value_selected_cb(val, cost=self.cost)
         self.on_state_value_selection(self.agent.agent_id, val)
@@ -115,7 +115,7 @@ class DCOP:
         self.cost = None
         self.neighbor_states.clear()
         self.neighbor_values.clear()
-        self.time_step += 1
+        self.steps += 1
 
     # ---------------- Algorithm specific methods ----------------------- #
 
