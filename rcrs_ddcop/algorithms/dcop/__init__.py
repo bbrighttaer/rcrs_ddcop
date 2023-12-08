@@ -41,7 +41,7 @@ class DCOP:
         self.num_look_ahead_steps = look_ahead_steps
         self.past_window_size = past_window_size
         self.model_trainer = XGBTrainer(
-            label=self.label + '-' + self.name,
+            label=self.label + f'-{self.name}',
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
             input_dim=5,
@@ -49,6 +49,7 @@ class DCOP:
             future_window_size=1,
             rounds=500,
             trajectory_len=self.agent.trajectory_len,
+            load_models=self.num_look_ahead_steps > -1,
         )
         self.steps = 0
         self.training_cycle = 5

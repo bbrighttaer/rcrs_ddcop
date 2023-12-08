@@ -1,4 +1,4 @@
-import random
+import os  # noqa
 import random
 import threading
 import time
@@ -38,7 +38,7 @@ DENSITY_MAX_PENALTY = 20
 MAX_AGENT_DENSITY = 3
 EPSILON = eps = 1e-20
 VALUE_CHANGE_COST = 10
-CRITICAL_TEMPERATURE_THRESHOLD = 300
+CRITICAL_TEMPERATURE_THRESHOLD = 400
 RANDOM_SEED = 0
 
 
@@ -52,8 +52,9 @@ def check_rescue_task(targets: List[Entity]) -> bool:
 
 
 class FireBrigadeAgent(Agent):
-    def __init__(self, pre, com_port, com_channel):
+    def __init__(self, pre, com_port, com_channel, seq_id):
         Agent.__init__(self, pre)
+        self.seq_id = seq_id
         self.com_channel = com_channel
         self.com_port = com_port
         self.trajectory_len = 10
@@ -376,15 +377,19 @@ class FireBrigadeAgent(Agent):
     def get_neighboring_road(self, entity: Building) -> EntityID:
         return self.building_to_road[entity.get_id()][0][0]
 
-    def get_density(self, entity: Entity) -> float:
-        if entity.get_urn() == Building.urn:
+    def get_density(self, selected_entity: Entity) -> float:
+        if selected_entity.get_urn() == Building.urn:
             # get number of agents close to this building
-            n_road = self.get_neighboring_road(entity)
+            n_road = self.get_neighboring_road(selected_entity)
 
             # find agents that are assigned to this building
             agts = []
             for entity in self.world_model.get_entities():
-                if entity.get_urn() == FireBrigadeEntity.urn and entity.position.get_value() == n_road:
+                if (
+                        entity.get_urn() == FireBrigadeEntity.urn and  # entity should be a fire brigade agent
+                        entity.position.get_value() == n_road and  # seen that there's an agent already assigned
+                        self.me().position.get_value() != n_road  # exclude instances that I am assigned to the same loc
+                ):
                     agts.append(entity)
 
             return max(MAX_AGENT_DENSITY, len(agts)) / MAX_AGENT_DENSITY
@@ -415,7 +420,7 @@ class FireBrigadeAgent(Agent):
         entity = context.get_entity(EntityID(selected_value))
 
         # reduce banding together and exclude beyond buildings based on fieryness
-        if num_assigned > 1 or entity.get_fieryness() > Fieryness.BURNING_SEVERELY:
+        if entity.get_fieryness() > Fieryness.BURNING_SEVERELY or num_assigned > 3:
             return 10000.
 
         if entity.get_urn() == Building.urn:
@@ -450,6 +455,8 @@ class FireBrigadeAgent(Agent):
         :return: cost
         """
         cost = 0.
+        if self.agent_id == 2033584105:
+            print()
 
         # get value of this agent
         agent_selected_value = agent_vals.pop(self.agent_id.get_value())
@@ -526,12 +533,12 @@ class FireBrigadeAgent(Agent):
             'temperature_3': temp_3,
         })
         file_name = f'{self.name}_{self.get_id().get_value()}_predictions.csv'
-        # look_ahead_history_df.to_csv(
-        #     file_name,
-        #     mode='a',
-        #     index=False,
-        #     header=not os.path.exists(file_name),
-        # )
+        look_ahead_history_df.to_csv(
+            file_name,
+            mode='a',
+            index=False,
+            header=not os.path.exists(file_name),
+        )
 
     def select_search_target(self) -> Entity | None:
         """

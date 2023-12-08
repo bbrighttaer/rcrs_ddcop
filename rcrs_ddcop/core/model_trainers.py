@@ -300,7 +300,7 @@ class XGBTrainer:
     """
 
     def __init__(self, label: str, experience_buffer: ExperienceBuffer, log: Logger, input_dim: int,
-                 past_window_size: int, future_window_size: int, trajectory_len, rounds: int = 100):
+                 past_window_size: int, future_window_size: int, trajectory_len, rounds: int = 100, load_models=False):
         self.trajectory_len = trajectory_len
         self.label = label
         self.input_dim = input_dim
@@ -329,20 +329,21 @@ class XGBTrainer:
         self.can_train = True
         self.batch_sz = 700
 
-        # self.load_model()
+        if load_models:
+            self.load_model()
 
     @property
     def model(self):
         return self._model
 
     def load_model(self):
-        self.can_train = False
-        self.has_trained = True
         self._model = xgb.Booster()
-        model_file_name = f'reference_models/FireBrigadeAgent_410064826_model.json'
-        scaler_file_name = f'reference_models/FireBrigadeAgent_410064826_scaler.bin'
+        model_file_name = f'models/{self.label}_model.json'
+        scaler_file_name = f'models/{self.label}_scaler.bin'
         self._model.load_model(model_file_name)
         self.normalizer = joblib.load(scaler_file_name)
+        self.can_train = False
+        self.has_trained = True
         self.log.info('Model loaded successfully')
 
     def write_to_tf_board(self, name, t, val):
@@ -357,7 +358,7 @@ class XGBTrainer:
     def __call__(self, *args, **kwargs):
         """Trains the prediction model"""
         # ensure there is enough train_data to sample from
-        if len(self.experience_buffer) < 1000:
+        if len(self.experience_buffer) < 100:
             return
 
         with self:

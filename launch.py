@@ -42,9 +42,12 @@ class Launcher:
         precompute = kwargs['precompute']
 
         for agn, num in agents.items():
-            for _ in range(num):
+            for i in range(num):
                 request_id = self.component_launcher.generate_request_ID()
-                process = Process(target=self.launch, args=(eval(agn)(precompute, find_free_port(), comm_channel), request_id))
+                process = Process(
+                    target=self.launch,
+                    args=(eval(agn)(precompute, find_free_port(), comm_channel, i), request_id)
+                )
                 process.start()
                 processes.append(process)
                 time.sleep(1/100)

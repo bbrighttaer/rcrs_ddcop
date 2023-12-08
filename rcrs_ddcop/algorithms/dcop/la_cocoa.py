@@ -116,6 +116,7 @@ class LA_CoCoA(DCOP):
         # if cost map is empty then there is no neighbor around so construct dummy total_cost_dict
         if not total_cost_dict:
             total_cost_dict = {value: {'cost': 0., 'params': {}} for value in self.domain}
+            # self.log.debug('Dummy total cost dict initialized')
 
         # self.log.debug(f'Cost dict (coordination): {total_cost_dict}')
 

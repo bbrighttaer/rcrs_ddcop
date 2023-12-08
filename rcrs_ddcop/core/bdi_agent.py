@@ -71,8 +71,8 @@ class BDIAgent(object):
         self.info_share = NeighborInfoSharing(self)
         self.dcop = LA_CoCoA(
             self, self.on_value_selected,
-            label=self.label,
-            look_ahead_steps=0,
+            label=f'{agent.name}_{agent.seq_id}',
+            look_ahead_steps=10,
             past_window_size=self.past_window_size,
         )
 
