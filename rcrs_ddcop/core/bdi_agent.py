@@ -6,7 +6,7 @@ from functools import partial
 import numpy as np
 
 from rcrs_ddcop.algorithms.dcop.dpop import DPOP  # noqa
-from rcrs_ddcop.algorithms.dcop.la_cocoa import LA_CoCoA  # noqa
+from rcrs_ddcop.algorithms.dcop.cocoa import CoCoA  # noqa
 from rcrs_ddcop.algorithms.graph.digca import DIGCA
 from rcrs_ddcop.algorithms.graph.info_sharing import NeighborInfoSharing
 from rcrs_ddcop.comm import messaging, CommProtocol
@@ -69,7 +69,7 @@ class BDIAgent(object):
         self.comm = AgentPseudoComm(self, CommProtocol.AMQP)
         self.graph = DIGCA(self, timeout=self._timeout - .5, max_num_of_neighbors=4)
         self.info_share = NeighborInfoSharing(self)
-        self.dcop = LA_CoCoA(
+        self.dcop = CoCoA(
             self, self.on_value_selected,
             label=f'{agent.name}_{agent.seq_id}',
             look_ahead_steps=10,
