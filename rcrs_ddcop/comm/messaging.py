@@ -7,23 +7,32 @@ from strenum import StrEnum
 
 class AgentMsgTypes(StrEnum):
     TEST = auto()
-    SHARED_INFO = auto()
+    BUSY = auto()
 
 
 class DIGCAMsgTypes(StrEnum):
     ANNOUNCE = auto()
     ADD_ME = auto()
-    ANNOUNCE_RESPONSE_IGNORED = auto()
+    PSEUDO_PARENT_REQEUST = auto()
     ANNOUNCE_RESPONSE = auto()
     CHILD_ADDED = auto()
     ALREADY_ACTIVE = auto()
     PARENT_ASSIGNED = auto()
     PARENT_ALREADY_ASSIGNED = auto()
+    PSEUDO_CHILD_ADDED = auto()
+    SEPARATOR = auto()
+
+
+class InfoSharing(StrEnum):
+    EXP_HISTORY_DISCLOSURE = auto()
+    EXP_SHARING_WITH_REQUEST = auto()
+    EXP_SHARING = auto()
+    NEIGHBOR_UPDATE = auto()
 
 
 class DPOPMsgTypes(StrEnum):
     REQUEST_UTIL_MESSAGE = auto()
-    VALUE_MESSAGE = auto()
+    DPOP_VALUE_MESSAGE = auto()
     UTIL_MESSAGE = auto()
 
 
@@ -32,6 +41,12 @@ class CoCoAMsgTypes(StrEnum):
     INQUIRY_MESSAGE = auto()
     COST_MESSAGE = auto()
     EXECUTION_REQUEST = auto()
+    CoCoA_VALUE_MESSAGE = auto()
+
+
+class LSLAMsgTypes(StrEnum):
+    LSLA_INQUIRY_MESSAGE = auto()
+    LSLA_UTIL_MESSAGE = auto()
 
 
 def _create_msg(msg_type: str, data: dict):
@@ -57,8 +72,8 @@ def create_add_me_message(data):
     return _create_msg(DIGCAMsgTypes.ADD_ME, data)
 
 
-def create_announce_response_ignored_message(data):
-    return _create_msg(DIGCAMsgTypes.ANNOUNCE_RESPONSE_IGNORED, data)
+def create_pseudo_parent_reqeust_message(data):
+    return _create_msg(DIGCAMsgTypes.PSEUDO_PARENT_REQEUST, data)
 
 
 def create_announce_response_message(data):
@@ -81,12 +96,16 @@ def create_parent_already_assigned_message(data):
     return _create_msg(DIGCAMsgTypes.PARENT_ALREADY_ASSIGNED, data)
 
 
+def create_separator_message(data):
+    return _create_msg(DIGCAMsgTypes.SEPARATOR, data)
+
+
 def create_request_util_message(data):
     return _create_msg(DPOPMsgTypes.REQUEST_UTIL_MESSAGE, data)
 
 
-def create_value_message(data):
-    return _create_msg(DPOPMsgTypes.VALUE_MESSAGE, data)
+def create_dpop_value_message(data):
+    return _create_msg(DPOPMsgTypes.DPOP_VALUE_MESSAGE, data)
 
 
 def create_util_message(data):
@@ -95,6 +114,10 @@ def create_util_message(data):
 
 def create_update_state_message(data):
     return _create_msg(CoCoAMsgTypes.UPDATE_STATE_MESSAGE, data)
+
+
+def create_cocoa_value_message(data):
+    return _create_msg(CoCoAMsgTypes.CoCoA_VALUE_MESSAGE, data)
 
 
 def create_inquiry_message(data):
@@ -109,5 +132,33 @@ def create_execution_request_message(data):
     return _create_msg(CoCoAMsgTypes.EXECUTION_REQUEST, data)
 
 
-def create_shared_info_message(data):
-    return _create_msg(AgentMsgTypes.SHARED_INFO, data)
+def create_lsla_inquiry_message(data):
+    return _create_msg(LSLAMsgTypes.LSLA_INQUIRY_MESSAGE, data)
+
+
+def create_lsla_util_message(data):
+    return _create_msg(LSLAMsgTypes.LSLA_UTIL_MESSAGE, data)
+
+
+def create_busy_message(data):
+    return _create_msg(AgentMsgTypes.BUSY, data)
+
+
+def create_pseudo_child_added_message(data):
+    return _create_msg(DIGCAMsgTypes.PSEUDO_CHILD_ADDED, data)
+
+
+def create_exp_history_disclosure_message(data):
+    return _create_msg(InfoSharing.EXP_HISTORY_DISCLOSURE, data)
+
+
+def create_exp_sharing_with_request_message(data):
+    return _create_msg(InfoSharing.EXP_SHARING_WITH_REQUEST, data)
+
+
+def create_exp_sharing_message(data):
+    return _create_msg(InfoSharing.EXP_SHARING, data)
+
+
+def create_neighbor_update_message(data):
+    return _create_msg(InfoSharing.NEIGHBOR_UPDATE, data)

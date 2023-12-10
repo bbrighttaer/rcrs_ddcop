@@ -16,7 +16,7 @@ class BFSSearch:
         self.building_set = set()
         self.graph = defaultdict(set)
 
-        # construct graph from entities in the world
+        # construct graph from entity_ids in the world
         for entity in world_model.get_entities():
             if isinstance(entity, Area):
                 area_neighbors = entity.get_neighbours()
@@ -65,7 +65,7 @@ class BFSSearch:
                 if current_entity is None:
                     raise RuntimeError('Found a node with no ancestor! Something is broken.')
                 path.append(current_entity.get_value())
-            return list(reversed(path))
+            return list(reversed(path))[:3]
 
     def breadth_first_search_for_civilian(self, start: EntityID, goals: List[EntityID]):
         open_list = []

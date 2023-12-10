@@ -1,5 +1,8 @@
-
+import math
 import threading
+import time
+from collections import defaultdict
+from itertools import chain
 from typing import List
 
 import numpy as np
@@ -7,52 +10,73 @@ from rcrs_core.agents.agent import Agent
 from rcrs_core.connection import URN
 from rcrs_core.constants import kernel_constants
 from rcrs_core.entities.ambulanceTeam import AmbulanceTeamEntity
+from rcrs_core.entities.area import Area
 from rcrs_core.entities.building import Building
 from rcrs_core.entities.civilian import Civilian
 from rcrs_core.entities.entity import Entity
+from rcrs_core.entities.fireBrigade import FireBrigadeEntity
 from rcrs_core.entities.refuge import Refuge
+from rcrs_core.entities.road import Road
 from rcrs_core.worldmodel.entityID import EntityID
+from rcrs_core.worldmodel.worldmodel import WorldModel
 
 from rcrs_ddcop.algorithms.path_planning.bfs import BFSSearch
 from rcrs_ddcop.core.bdi_agent import BDIAgent
-
-
-SEARCH_ACTION = -1
-
-
-def distance(x1, y1, x2, y2):
-    return np.abs(x1 - x2) + np.abs(y1 - y2)
+from rcrs_ddcop.core.data import world_to_state, state_to_dict
+from rcrs_ddcop.core.enums import Fieryness
+from rcrs_ddcop.utils.common_funcs import distance, get_building_score, get_civilians, get_buried_humans, \
+    buried_humans_to_dict, get_agents_in_comm_range_ids, neighbor_constraint, get_road_score, \
+    inspect_buildings_for_domain, get_human_score
+from rcrs_ddcop.utils.logger import Logger
 
 
 class AmbulanceTeamAgent(Agent):
     def __init__(self, pre):
         Agent.__init__(self, pre)
+        self.current_time_step = 0
         self.name = 'AmbulanceTeamAgent'
         self.bdi_agent = None
         self.search = None
         self.unexplored_buildings = {}
-        self.refuges = set()
-        self._previous_position = (0, 0)
+        self.refuge_ids = set()
+        self._previous_position = None
         self._estimated_tau = 0
-        self._seen_civilians = False
+        self.can_rescue = False
+        self._cached_exp = None
+        self._value_selection_freq = defaultdict(int)
+        self._buildings_for_domain = []
+        self._roads = []
 
     def precompute(self):
         self.Log.info('precompute finished')
 
     def post_connect(self):
-        super(AmbulanceTeamAgent, self).post_connect()
+        self.Log = Logger(self.get_name(), self.get_id())
         threading.Thread(target=self._start_bdi_agent, daemon=True).start()
         self.search = BFSSearch(self.world_model)
 
         # get buildings and refuges in the environment
         for entity in self.world_model.get_entities():
             if isinstance(entity, Refuge):
-                self.refuges.add(entity)
+                self.refuge_ids.add(entity.entity_id)
+
             elif isinstance(entity, Building):
                 self.unexplored_buildings[entity.entity_id] = entity
+                self._buildings_for_domain.append(entity)
+
+            elif isinstance(entity, Road):
+                self._roads.append(entity)
+
+    def check_rescue_task(self, civilians: List[Civilian]) -> bool:
+        """checks if a rescue operation exists"""
+        flags = [
+            civilian.get_hp() > 0 and civilian.get_buriedness() == 0
+            for civilian in civilians
+        ]
+        return max(flags) if civilians else False
 
     def _start_bdi_agent(self):
-        # create BDI agent after RCRS agent is setup
+        """create BDI agent after RCRS agent is setup"""
         self.bdi_agent = BDIAgent(self)
         self.bdi_agent()
 
@@ -67,62 +91,101 @@ class AmbulanceTeamAgent(Agent):
                 entities.append(entity)
         return entities
 
-    def get_agents_in_comm_range_ids(self, entities: List[Entity]):
-        neighbors = []
-        for entity in entities:
-            if isinstance(entity, AmbulanceTeamEntity) and entity.entity_id != self.agent_id:
-                neighbors.append(entity.entity_id.get_value())
-        return neighbors
-
-    def get_civilians(self, entities: List[Entity]) -> List[Civilian]:
-        civilians = []
-        for entity in entities:
-            if isinstance(entity, Civilian):
-                civilians.append(entity)
-        return civilians
-
     def get_refuges(self, entities: List[Entity]) -> List[Refuge]:
         refuges = []
         for entity in entities:
             if isinstance(entity, Refuge):
                 refuges.append(entity)
+        refuges = sorted(refuges, key=lambda e: distance(
+            x1=self.world_model.get_entity(e.entity_id).get_x(),
+            y1=self.world_model.get_entity(e.entity_id).get_y(),
+            x2=self.me().get_x(),
+            y2=self.me().get_y()
+        ))
         return refuges
 
+    def _get_unburnt_neighbors(self, building: Building):
+        unburnt = []
+        for n in building.get_neighbours():
+            entity = self.world_model.get_entity(n)
+            if entity and entity.get_urn() == Building.urn and entity.get_fieryness() < Fieryness.COMPLETELY_BURNT:
+                unburnt.append(entity)
+        return unburnt
+
+    def get_fire_brigade_ids(self) -> List[int]:
+        fb_ids = []
+        for entity in self.world_model.get_entities():
+            if isinstance(entity, FireBrigadeEntity):
+                fb_ids.append(entity.get_id().get_value())
+        return fb_ids
+
+    def share_buried_humans(self):
+        buried_data = buried_humans_to_dict(get_buried_humans(self.world_model))
+        if buried_data:
+            receiver_ids = self.get_fire_brigade_ids()
+            self.bdi_agent.share_buried_entities_information(receiver_ids, buried_data)
+
     def think(self, time_step, change_set, heard):
-        self.Log.info(f'Time step {time_step}')
+        start = time.perf_counter()
+        self.Log.info(f'Time step {time_step}, size of exp buffer = {len(self.bdi_agent.experience_buffer)}')
         if time_step == self.config.get_value(kernel_constants.IGNORE_AGENT_COMMANDS_KEY):
             self.send_subscribe(time_step, [1, 2])
 
         # estimate tau using exponential average
         alpha = 0.3
-        d = distance(*self._previous_position, *self.location().get_location())
-        self._estimated_tau = alpha * self._estimated_tau + (1 - alpha) * d
+        if self._previous_position:
+            d = distance(*self._previous_position, *self.location().get_location())
+            self._estimated_tau = alpha * self._estimated_tau + (1 - alpha) * d
+        self._previous_position = self.location().get_location()
 
-        # get visible entities
+        # get visible entity_ids
         change_set_entities = self.get_change_set_entities(list(change_set.changed.keys()))
 
         # update unexplored buildings
         self.update_unexplored_buildings(change_set_entities)
 
         # get agents in communication range
-        neighbors = self.get_agents_in_comm_range_ids(change_set_entities)
+        self.current_time_step = time_step
+        neighbors = get_agents_in_comm_range_ids(self.agent_id, change_set_entities)
         self.bdi_agent.agents_in_comm_range = neighbors
+        self.bdi_agent.remove_unreachable_neighbors()
+        self.bdi_agent.busy_neighbors.clear()
+        self.bdi_agent.process_paused_msgs()
 
         # anyone onboard?
         on_board_civilian = self.get_civilian_on_board()
 
         # get civilians to construct domain or set domain to civilian currently onboard
-        civilians = self.get_civilians(change_set_entities)
-        civilians = self._validate_civilians(civilians)
-        domain = [SEARCH_ACTION] + [c.get_id().get_value() for c in civilians]
-        self.bdi_agent.domain = domain if not on_board_civilian else [on_board_civilian.get_id().get_value()]
-        self._seen_civilians = len(civilians) > 0
+        civilians = get_civilians(change_set_entities)
+        # self.get_buildings(change_set_entities)
+
+        # check if there is a civilian to be rescued
+        self.can_rescue = self.check_rescue_task(civilians)
+
+        # construct agent's state from world view
+        state = world_to_state(self.world_model)
+        self.bdi_agent.state = state
 
         # share information with neighbors
-        self.bdi_agent.share_information()
+        if self._cached_exp:
+            s_prime = world_to_state(
+                world_model=self.world_model,
+                entity_ids=self._cached_exp.nodes_order,
+            )
+            s_prime.nodes_order = self._cached_exp.nodes_order
+            s_prime.node_urns = self._cached_exp.node_urns
+
+            self.bdi_agent.experience_buffer.add((self._cached_exp, s_prime))
+            self.bdi_agent.share_updated_domain_information(exp=[
+                state_to_dict(self._cached_exp), state_to_dict(s_prime)
+            ])
+        self._cached_exp = state
 
         # if someone is onboard, focus on transporting the person to a refuge
         if on_board_civilian:
+            self.bdi_agent.domain = [on_board_civilian.get_id().get_value()]
+            self.bdi_agent.send_busy_to_neighbors()
+
             self.Log.info(f'Civilian {on_board_civilian.get_id()} is onboard')
 
             # Am I at a refuge?
@@ -131,55 +194,67 @@ class AmbulanceTeamAgent(Agent):
                 self.send_unload(time_step)
             else:
                 # continue journey to refuge
-                refuges = self.get_refuges(change_set_entities)  # preference for a close refuge
-                refuges = refuges if refuges else self.refuges
-                refuge_entity_IDs = [r.get_id() for r in refuges]
-                path = self.search.breadth_first_search(self.location().get_id(), refuge_entity_IDs)
+                path = self.search.breadth_first_search(self.location().get_id(), self.refuge_ids)
                 if path:
                     self.send_move(time_step, path)
                 else:
                     self.Log.warning('Failed to plan path to refuge')
 
-        # if no civilian is visible or no one on board but at a refuge, explore environment
-        elif not civilians or isinstance(self.location(), Refuge):
+        # if no one is on board but at a refuge, explore environment
+        elif isinstance(self.location(), Refuge):
+            self.bdi_agent.send_busy_to_neighbors()
+            self.Log.debug('Leaving Refuge')
             self.send_search(time_step)
+        else:
+            # update domain
+            civilians = self.validate_civilians(civilians)
+            domain = [c.get_id().get_value() for c in chain(
+                civilians,
+                inspect_buildings_for_domain(self._buildings_for_domain),
+                self._roads,
+            )]
+            self.bdi_agent.domain = domain
 
-        else:  # if civilians are visible, deliberate on who to save
             # execute thinking process
-            value = self.bdi_agent.deliberate()
+            agent_value, score = self.bdi_agent.deliberate(time_step)
+            selected_entity = self.world_model.get_entity(EntityID(agent_value))
 
-            # if selected value or action is Search, no need to examine civilian related expressions
-            if value == SEARCH_ACTION:
-                # self.send_search(time_step)
-                self.Log.warning('search action selected')
-                return
+            # update selected value's tally
+            self._value_selection_freq[agent_value] += 1
 
-            # create entity ID obj from raw civilian id
-            civilian_id = EntityID(value)
-            civilian: Civilian = self.world_model.get_entity(civilian_id)
-            self.Log.info(f'Time step {time_step}: selected civilian {civilian_id}')
+            lbl = selected_entity.urn.name
+            self.Log.info(f'Time step {time_step}: selected {lbl} {selected_entity.entity_id.get_value()}')
 
-            # if agent's location is the same as civilian's location, load the civilian else plan path to civilian
-            if civilian.position.get_value() == self.location().get_id():
-                self.Log.info(f'Loading {civilian_id}')
-                self.send_load(time_step, civilian_id)
-            else:
-                path = self.search.breadth_first_search(self.location().get_id(), [civilian.position.get_value()])
-                self.Log.info(f'Moving to target {civilian_id}')
-                if path:
-                    self.send_move(time_step, path)
+            if isinstance(selected_entity, Area):  # building or road
+                self.send_search(time_step, selected_entity.entity_id)
+                ...
+
+            elif isinstance(selected_entity, Civilian):
+                civilian = selected_entity
+                civilian_id = civilian.entity_id
+
+                # if agent's location is the same as civilian's location, load the civilian else plan path to civilian
+                if selected_entity.position.get_value() == self.location().get_id():
+                    self.Log.info(f'Loading {civilian_id}')
+                    self.send_load(time_step, civilian_id)
                 else:
-                    self.Log.warning(f'Failed to plan path to {civilian_id}')
+                    path = self.search.breadth_first_search(self.location().get_id(), [civilian.position.get_value()])
+                    self.Log.info(f'Moving to target {civilian_id}')
+                    if path:
+                        self.send_move(time_step, path)
+                    else:
+                        self.Log.warning(f'Failed to plan path to {civilian_id}')
 
-        # self.send_load(time_step, target)
-        # self.send_unload(time_step)
-        # self.send_say(time_step, 'HELP')
-        # self.send_speak(time_step, 'HELP meeeee police', 1)
-        # self.send_move(time_step, my_path)
-        # self.send_rest(time_step)
+            # record decision time
+            time_taken = time.perf_counter() - start
+            self.bdi_agent.record_deliberation_time(time_step, time_taken)
+            self.Log.debug(f'Deliberation time = {time_taken}')
 
-    def send_search(self, time_step):
-        path = self.search.breadth_first_search(self.location().get_id(), self.unexplored_buildings)
+    def send_search(self, time_step, building_id=None):
+        path = self.search.breadth_first_search(
+            self.location().get_id(),
+            [building_id] if building_id else self.unexplored_buildings,
+        )
         if path:
             self.Log.info('Searching buildings')
             self.send_move(time_step, path)
@@ -202,60 +277,70 @@ class AmbulanceTeamAgent(Agent):
             if isinstance(entity, Building) and entity.entity_id in self.unexplored_buildings:
                 self.unexplored_buildings.pop(entity.entity_id)
 
-    def binary_constraint(self, agent_vals: dict):
-        score = 0
+    def unary_constraint(self, context: WorldModel, selected_value):
         eps = 1e-20
-        switching_cost = 5
-        penalty = 2
-        tau = 1000 if self._estimated_tau == 0 else self._estimated_tau
+        score = 0.
 
-        selected_value = agent_vals[self.agent_id.get_value()]
-        civilian: Civilian = self.world_model.get_entity(EntityID(selected_value))
+        # get entity from context (given world)
+        entity = context.get_entity(EntityID(selected_value))
 
-        # if this agent's selected value is SEARCH when there are civilians seen by the agent, award a penalty
-        if selected_value == SEARCH_ACTION:
-            if self._seen_civilians:
+        # if no entity is found, check if the selected value corresponds to a civilian already assigned to an agent
+        # and give a large penalty.
+        if entity is None:
+            entity_pos = self.world_model.get_entity(EntityID(selected_value)).position.get_value()
+            entity_pos = self.world_model.get_entity(entity_pos)
+            if isinstance(entity_pos, AmbulanceTeamEntity):
                 return np.log(eps)
-            elif not self._seen_civilians:
-                return 0
 
-        # get neighbor's selected value
-        neighbor_id = neighbor_value = None
-        for k, v in agent_vals.items():
-            if k != self.agent_id.get_value():
-                neighbor_id = k
-                neighbor_value = v
-                break
+        # distance
+        # score = distance(
+        #     x1=self.world_model.get_entity(entity.entity_id).get_x(),
+        #     y1=self.world_model.get_entity(entity.entity_id).get_y(),
+        #     x2=self.me().get_x(),
+        #     y2=self.me().get_y()
+        # ) / tau
+        # score = -np.log(score + eps)
 
-        # fieryness unary constraint
-        location = self.world_model.get_entity(civilian.position.get_value())
-        if isinstance(location, Building):
-            score += -np.log(max(eps, location.get_fieryness()))
+        # exploration term
+        x = np.log(self.current_time_step) / max(1, self._value_selection_freq[selected_value])
+        score += np.sqrt(2 * len(self.bdi_agent.domain) * x)
 
-        # buriedness unary constraint
-        if civilian.get_buriedness() != 0:
-            self.Log.debug(f'Civilian {civilian} buriedness is {civilian.get_buriedness()}')
-        score -= np.log(max(civilian.get_buriedness(), 1))
+        # Building/Road score
+        if isinstance(entity, Area):
+            if self.can_rescue or entity.get_id().get_value() == self.location().get_id().get_value():
+                return np.log(eps)
+            return score + get_building_score(entity) if isinstance(entity, Building) else get_road_score(
+                world_model=context,
+                road=self.world_model.get_entity(entity.entity_id),
+            )
 
-        # distance unary constraint
-        score -= distance(civilian.get_x(), civilian.get_y(), self.me().get_x(), self.me().get_y()) / tau
-
-        # switching cost
-        prev_val = self.bdi_agent.previous_value
-        score -= switching_cost if prev_val and selected_value != prev_val else 0
-
-        # coordination constraint
-        score -= penalty if selected_value == neighbor_value else 0
+        # Civilian score
+        elif isinstance(entity, Civilian) and entity.get_hp() > 0 and entity.get_buriedness() == 0:
+            score += get_human_score(self.world_model, context, entity)
+        else:
+            return np.log(eps)
 
         return score
 
-    def _validate_civilians(self, civilians: List[Civilian]) -> List[Civilian]:
+    def neighbor_constraint(self, context: WorldModel, agent_vals: dict):
         """
-        filter out civilians who are already being transported by other agents.
+        The desire is to optimize the objective functions in its neighborhood.
+        :return:
         """
-        _cv = []
-        for c in civilians:
-            if not isinstance(self.world_model.get_entity(c.get_position_property()), AmbulanceTeamAgent):
-                _cv.append(c)
+        return neighbor_constraint(self.agent_id, context, agent_vals)
 
-        return _cv
+    def validate_civilians(self, civilians: List[Civilian]) -> List[Civilian]:
+        """
+        Filter out civilians who are already being transported by other agents or at a Refuge.
+        """
+        cv = []
+        for c in civilians:
+            civilian_location = self.world_model.get_entity(c.get_position())
+            if not (isinstance(civilian_location, AmbulanceTeamAgent)
+                    or isinstance(civilian_location, Refuge)) and c.get_hp() > 0:
+                cv.append(c)
+
+        return cv
+
+    def agent_look_ahead_completed_cb(self, world):
+        ...
