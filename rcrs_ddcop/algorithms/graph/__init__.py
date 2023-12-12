@@ -91,7 +91,7 @@ class DynaGraph:
         raise Unsupported()
 
     def report_connection(self, parent, child, constraint):
-        # self.channel.basic_publish(exchange=messaging.COMM_EXCHANGE,
+        # self.address_table.basic_publish(exchange=messaging.COMM_EXCHANGE,
         #                            routing_key=f'{messaging.MONITORING_CHANNEL}',
         #                            body=messaging.create_agent_connection_message({
         #                                'agent_id': self.agent.agent_id,
@@ -103,7 +103,7 @@ class DynaGraph:
 
     def report_agent_disconnection(self, agent):
         # inform dashboard about disconnection
-        # self.channel.basic_publish(
+        # self.address_table.basic_publish(
         #     exchange=messaging.COMM_EXCHANGE,
         #     routing_key=f'{messaging.MONITORING_CHANNEL}',
         #     body=messaging.create_agent_disconnection_message({
@@ -114,7 +114,7 @@ class DynaGraph:
         # )
 
         # update current graph
-        # self.channel.basic_publish(
+        # self.address_table.basic_publish(
         #     exchange=messaging.COMM_EXCHANGE,
         #     routing_key=f'{messaging.SIM_ENV_CHANNEL}',
         #     body=messaging.create_remove_graph_edge_message({

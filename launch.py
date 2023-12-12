@@ -3,12 +3,11 @@ import os
 import socket
 import sys
 import time
-from multiprocessing import Process
+from multiprocessing import Process, Manager
 
 from rcrs_core.connection.componentLauncher import ComponentLauncher
 from rcrs_core.constants.constants import DEFAULT_KERNEL_PORT_NUMBER, DEFAULT_KERNEL_HOST_NAME
 
-from rcrs_ddcop.comm.pseudo_com import CommChannel
 from rcrs_ddcop.core.ambulanceCenterAgent import AmbulanceCenterAgent  # noqa
 from rcrs_ddcop.core.ambulanceTeamAgent import AmbulanceTeamAgent  # noqa
 from rcrs_ddcop.core.fireBrigadeAgent import FireBrigadeAgent  # noqa
@@ -29,7 +28,7 @@ class Launcher:
             sys.exit(0)
 
     def run(self, kwargs):
-        comm_channel = CommChannel()
+        address_table = Manager().dict()
         processes = []
         agents = {}
         self.component_launcher = ComponentLauncher(kwargs['port'], kwargs['host'])
@@ -46,14 +45,11 @@ class Launcher:
                 request_id = self.component_launcher.generate_request_ID()
                 process = Process(
                     target=self.launch,
-                    args=(eval(agn)(precompute, find_free_port(), comm_channel, i), request_id)
+                    args=(eval(agn)(precompute, find_free_port(), address_table, i), request_id)
                 )
                 process.start()
                 processes.append(process)
                 time.sleep(1/100)
-
-        # start communication channel
-        comm_channel.activate()
 
         for p in processes:
             p.join()

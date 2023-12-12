@@ -50,10 +50,12 @@ class HttpCommunicationLayer(CommunicationLayer):
             agent_id,
             logger,
             on_message_handler: Callable,
+            address_table: dict,
             address_port: Optional[Tuple[str, int]] = None,
     ):
         self.protocol = CommProtocol.HTTP
         self.on_message_handler = on_message_handler
+        self.address_table = address_table
         if not address_port:
             self._address = find_local_ip(), 9000
         else:
@@ -68,6 +70,13 @@ class HttpCommunicationLayer(CommunicationLayer):
 
     def listen_to_network(self, duration=0.1):
         ...
+
+    def publish(self, dest_agent, body):
+        if dest_agent in self.address_table:
+            ip_addr, port = self.address_table[dest_agent]
+            Thread(target=send_http_msg, args=[ip_addr, port, body]).start()
+        else:
+            self.logger.error(f'Message {body} could not be sent to {dest_agent}, address not found')
 
     def shutdown(self):
         self.logger.info(f'Shutting down HttpCommunicationLayer on {self.address}')

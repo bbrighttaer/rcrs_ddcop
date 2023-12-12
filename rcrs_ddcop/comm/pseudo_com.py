@@ -53,15 +53,15 @@ class AgentPseudoComm(object):
 
         if comm_protocol == CommProtocol.HTTP:
             ip_addr = '127.0.0.1'
+            # register agent's address
+            self._bdi_agt.address_table[self.agent_id] = (ip_addr, agent.com_port)
             self.comm_svc = HttpCommunicationLayer(
                 self.agent_id,
                 self.Log,
                 address_port=(ip_addr, agent.com_port),
                 on_message_handler=agent.handle_message,
+                address_table=self._bdi_agt.address_table,
             )
-
-            # register agent's message handler
-            self._bdi_agt.com_channel.register_agent_ip_port(self.agent_id, ip_addr, agent.com_port)
         else:  # amqp
             self.comm_svc = AMQPCommunicationLayer(
                 self.agent_id,
@@ -78,12 +78,7 @@ class AgentPseudoComm(object):
         data = json.loads(body)
         data['time_step'] = self._bdi_agt.time_step
         body = json.dumps(data)
-
-        # determine service for sending message
-        if self.comm_protocol == CommProtocol.HTTP:
-            self._bdi_agt.com_channel.send(msg=Message(agent_id, body))
-        else:
-            self.comm_svc.publish(agent_id, body)
+        self.comm_svc.publish(agent_id, body)
 
     def broadcast_announce_message(self, neighboring_agents: List[int]):
         for agt in neighboring_agents:
@@ -284,39 +279,4 @@ class AgentPseudoComm(object):
                 **kwargs,
             })
         )
-
-
-# default message object interchanged between agents.
-Message = namedtuple('Message', field_names=['agent_id', 'body'])
-
-
-class CommChannel:
-    """
-    A queue-based communication channel
-    """
-
-    def __init__(self):
-        self._channel = Queue()
-        self._registry = Manager().dict()
-
-    def register_agent_ip_port(self, agent_id, ip_addr, port):
-        self._registry[agent_id] = (ip_addr, port)
-
-    def send(self, msg: Message):
-        self._channel.put(msg)
-
-    def activate(self):
-        Thread(target=self._start).start()
-
-    def _start(self):
-        while True:
-            # get message from channel
-            msg: Message = self._channel.get()
-
-            # pass on message to recipient, if a handling function is registered, else put the msg back in the queue
-            if msg.agent_id in self._registry:
-                ip_addr, port = self._registry[msg.agent_id]
-                Thread(target=send_http_msg, args=[ip_addr, port, msg.body]).start()
-            else:
-                self._channel.put(msg)
 

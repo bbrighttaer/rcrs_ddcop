@@ -52,10 +52,10 @@ def check_rescue_task(targets: List[Entity]) -> bool:
 
 
 class FireBrigadeAgent(Agent):
-    def __init__(self, pre, com_port, com_channel, seq_id):
+    def __init__(self, pre, com_port, address_table, seq_id):
         Agent.__init__(self, pre)
         self.seq_id = seq_id
-        self.com_channel = com_channel
+        self.address_table = address_table
         self.com_port = com_port
         self.trajectory_len = 10
         self.current_time_step = 0

@@ -10,6 +10,9 @@ class CommunicationLayer(Protocol):
     def threadsafe_execution(self, func: Callable):
         ...
 
+    def publish(self, dest_agent, body):
+        ...
+
 
 class CommProtocol(enum.Enum):
     HTTP = 'HTTP'

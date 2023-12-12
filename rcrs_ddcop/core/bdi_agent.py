@@ -69,7 +69,7 @@ class BDIAgent(object):
         self.comm = AgentPseudoComm(self, CommProtocol.AMQP)
         self.graph = DIGCA(self, timeout=self._timeout - .5, max_num_of_neighbors=4)
         self.info_share = NeighborInfoSharing(self)
-        self.dcop = CoCoA(
+        self.dcop = DPOP(
             self, self.on_value_selected,
             label=f'{agent.name}_{agent.seq_id}',
             look_ahead_steps=10,
@@ -91,8 +91,8 @@ class BDIAgent(object):
         return self._state
 
     @property
-    def com_channel(self):
-        return self._rcrs_agent.com_channel
+    def address_table(self):
+        return self._rcrs_agent.address_table
 
     @property
     def time_step(self):

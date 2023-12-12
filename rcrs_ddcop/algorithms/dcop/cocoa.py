@@ -202,7 +202,7 @@ class CoCoA(DCOP):
         self.comm.send_cost_message(recipient, data)
 
     def report_state_change_to_dashboard(self):
-        # self.graph.channel.basic_publish(exchange=messaging.COMM_EXCHANGE,
+        # self.graph.address_table.basic_publish(exchange=messaging.COMM_EXCHANGE,
         #                                  routing_key=f'{messaging.MONITORING_CHANNEL}',
         #                                  body=messaging.create_agent_state_changed_message({
         #                                      'agent_id': self.agent.agent_id,
