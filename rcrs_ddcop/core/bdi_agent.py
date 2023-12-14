@@ -35,7 +35,7 @@ class BDIAgent(object):
         self._neighbor_domains = {}
         self._neighbor_previous_values = {}
         self.experience_buffer = ExperienceBuffer(lbl=self.label, log=self.log)
-        self._timeout = 4.7
+        self._timeout = 6
         self.look_ahead_tuples = None
         self.all_agents_selected_vals = {}
 
@@ -69,7 +69,7 @@ class BDIAgent(object):
         self.comm = AgentPseudoComm(self, CommProtocol.AMQP)
         self.graph = DIGCA(self, timeout=self._timeout - .5, max_num_of_neighbors=4)
         self.info_share = NeighborInfoSharing(self)
-        self.dcop = DPOP(
+        self.dcop = CoCoA(
             self, self.on_value_selected,
             label=f'{agent.name}_{agent.seq_id}',
             look_ahead_steps=10,
@@ -106,7 +106,7 @@ class BDIAgent(object):
 
         # check and create trajectory
         if time_step % self.trajectory_len == 0:
-            exp_keys = self.experience_buffer.add(trajectory=self._partial_traj)
+            # exp_keys = self.experience_buffer.add(trajectory=self._partial_traj)
             self._partial_traj = []
             self.past_states.clear()
             self.past_states.append(state)

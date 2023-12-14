@@ -77,7 +77,7 @@ class DPOP(DCOP):
 
         # start sending UTIL when this node is a leaf or a parent with all utils ready to forward
         elif self.graph.parent and (
-                not self.graph.children or len(self.util_messages) == len(self.graph.children)
+                not self.graph.children or (self.util_messages and len(self.util_messages) == len(self.graph.children))
         ):
             self.log.info('Initiating DPOP...')
             self.X_ij = None
@@ -85,9 +85,12 @@ class DPOP(DCOP):
             # calculate UTIL messages and send to parent
             self.send_util_msg()
 
-        elif not self._util_msg_requested:
-            self._send_util_requests_to_children()
-            self._util_msg_requested = True
+        else:
+            self.log.info('Execution on hold')
+
+        # elif not self._util_msg_requested:
+        #     self._send_util_requests_to_children()
+        #     self._util_msg_requested = True
 
     def _send_util_requests_to_children(self):
         # get agents that are yet to send UTIL msgs
@@ -170,7 +173,10 @@ class DPOP(DCOP):
             self.send_util_msg()
         else:
             # reqeust util msgs from children yet to submit theirs
-            self._send_util_requests_to_children()
+            # self._send_util_requests_to_children()
+            remaining_utils = set(self.graph.children) - set(self.util_messages.keys())
+            if remaining_utils:
+                self.log.info(f'Waiting for utils from {remaining_utils}')
 
     def receive_value_message(self, payload):
         self.log.info(f'Received VALUE message: {payload}')

@@ -270,7 +270,7 @@ class FireBrigadeAgent(Agent):
             self.la_tuples = create_update_look_ahead_tuples(self.world_model)
 
         # share updates with neighbors
-        self.bdi_agent.share_updates_with_neighbors(exp_keys=exp_keys)
+        # self.bdi_agent.share_updates_with_neighbors(exp_keys=exp_keys)
 
         # check if water tank should be refilled
         if self.me().get_water() < WATER_OUT:

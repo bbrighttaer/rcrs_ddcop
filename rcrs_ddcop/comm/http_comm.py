@@ -161,7 +161,7 @@ def send_http_msg(ip_addr, port, msg):
         r = requests.post(
             dest_address,
             json=msg,
-            timeout=3.,
+            timeout=5.5,
         )
         if r is not None and r.status_code == 404:
             # It seems that the target computation of this message is not
