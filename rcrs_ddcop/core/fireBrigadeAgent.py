@@ -80,6 +80,7 @@ class FireBrigadeAgent(Agent):
         self.building_to_index = {}
         self.index_to_building = {}
         self.domain = {}
+        self.urn = URN.Entity.FIRE_BRIGADE
 
     def _set_seed(self):
         seed = self.agent_id.get_value() + RANDOM_SEED
@@ -218,6 +219,12 @@ class FireBrigadeAgent(Agent):
                 entities,
             )
         )
+
+    def get_building_temperature(self, entity_id):
+        entity = self.world_model.get_entity(EntityID(entity_id))
+        if entity.get_urn() == Building.urn:
+            return entity.get_temperature()
+        return -1
 
     def think(self, time_step, change_set, heard):
         start = time.perf_counter()

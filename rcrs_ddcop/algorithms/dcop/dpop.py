@@ -116,7 +116,7 @@ class DPOP(DCOP):
 
     def select_value(self):
         # create world-view from local belief and shared belief for reasoning
-        context = self.get_belief()
+        world = self.get_belief()
 
         parent = self.graph.parent
         if parent and parent in self.neighbor_values and self.X_ij is not None:
@@ -128,7 +128,7 @@ class DPOP(DCOP):
         u_costs = []
         for val in self.domain:
             cost = self.agent.unary_constraint(
-                context,
+                world,
                 int(val),
             )
             u_costs.append(cost)
@@ -154,6 +154,10 @@ class DPOP(DCOP):
 
         if self._exec_start_time:
             self.agent.duration = time.perf_counter() - self._exec_start_time
+
+        # notify agent about predictions
+        if self.num_look_ahead_steps > 0 and self.model_trainer.has_trained:
+            self.agent.look_ahead_completed_cb(world)
 
     def receive_util_message(self, payload):
         self.log.info(f'Received util message: {payload}')

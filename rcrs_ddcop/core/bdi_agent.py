@@ -95,6 +95,10 @@ class BDIAgent(object):
         return self._rcrs_agent.address_table
 
     @property
+    def urn(self):
+        return self._rcrs_agent.urn
+
+    @property
     def time_step(self):
         return self._rcrs_agent.current_time_step
 
@@ -165,6 +169,10 @@ class BDIAgent(object):
     def on_value_selected(self, value, *args, **kwargs):
         self._value = value
         self._value_selection_evt.set()
+        self.comm.send_metrics_message(
+            value=value,
+            temperature=self._rcrs_agent.get_building_temperature(value),
+        )
 
     def execute_dcop(self):
         self.dcop.execute_dcop()

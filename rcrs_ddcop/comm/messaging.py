@@ -8,6 +8,7 @@ from strenum import StrEnum
 class AgentMsgTypes(StrEnum):
     TEST = auto()
     BUSY = auto()
+    METRICS = auto()
 
 
 class DIGCAMsgTypes(StrEnum):
@@ -162,3 +163,7 @@ def create_exp_sharing_message(data):
 
 def create_neighbor_update_message(data):
     return _create_msg(InfoSharing.NEIGHBOR_UPDATE, data)
+
+
+def create_metrics_message(data):
+    return _create_msg(AgentMsgTypes.METRICS, data)

@@ -1,13 +1,12 @@
 import functools
 import json
-from collections import namedtuple
-from multiprocessing import Queue, Manager
-from threading import Thread
 from typing import Callable, List
+
+from rcrs_core.connection.URN import Entity
 
 from rcrs_ddcop.comm import messaging, CommProtocol
 from rcrs_ddcop.comm.amqp_comm import AMQPCommunicationLayer
-from rcrs_ddcop.comm.http_comm import HttpCommunicationLayer, send_http_msg
+from rcrs_ddcop.comm.http_comm import HttpCommunicationLayer
 
 BROKER_URL = '127.0.0.1'
 BROKER_PORT = 5672
@@ -44,7 +43,7 @@ class AgentPseudoComm(object):
     Pseudo-communication layer for agents.
     """
 
-    def __init__(self, agent: 'BDIAgent', comm_protocol: CommProtocol):
+    def __init__(self, agent, comm_protocol: CommProtocol):
         self._bdi_agt = agent
         self.agent_id = agent.agent_id
         self.Log = agent.log
@@ -54,7 +53,9 @@ class AgentPseudoComm(object):
         if comm_protocol == CommProtocol.HTTP:
             ip_addr = '127.0.0.1'
             # register agent's address
-            self._bdi_agt.address_table[self.agent_id] = (ip_addr, agent.com_port)
+            self._bdi_agt.address_table[
+                'metrics-agent' if agent.urn == Entity.FIRE_STATION else self.agent_id
+            ] = (ip_addr, agent.com_port)
             self.comm_svc = HttpCommunicationLayer(
                 self.agent_id,
                 self.Log,
@@ -64,7 +65,7 @@ class AgentPseudoComm(object):
             )
         else:  # amqp
             self.comm_svc = AMQPCommunicationLayer(
-                self.agent_id,
+                'metrics-agent' if agent.urn == Entity.FIRE_STATION else self.agent_id,
                 self.Log,
                 on_message_handler=agent.handle_message,
                 address_port=None,
@@ -280,3 +281,11 @@ class AgentPseudoComm(object):
             })
         )
 
+    def send_metrics_message(self, **kwargs):
+        self.send_to_agent(
+            agent_id='metrics-agent',
+            body=messaging.create_metrics_message({
+                'agent_id': self.agent_id,
+                **kwargs,
+            })
+        )
