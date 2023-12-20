@@ -89,7 +89,7 @@ class DCOP:
         self.model_trainer.write_to_tf_board(name, t, value)
 
     def get_belief(self) -> WorldModel:
-        past_states = self.agent.past_states
+        past_states = list(self.agent.past_states)
         if (self.num_look_ahead_steps > 0 and len(past_states) == self.past_window_size
                 and self.model_trainer.normalizer):
             # get prediction about the future steps
