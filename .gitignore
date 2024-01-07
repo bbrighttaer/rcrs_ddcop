@@ -283,3 +283,4 @@ pyrightconfig.json
 *.ipynb
 # End of https://www.toptal.com/developers/gitignore/api/pycharm+all,python,jupyternotebooks
 /rcrs_ddcop/core/runs/
+/metrics

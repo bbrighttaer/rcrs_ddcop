@@ -64,7 +64,8 @@ class CenterAgent(object):
         self.log.info(f'Center agent {self.agent_id} is shutting down.')
 
     def save_metrics_to_file(self):
-        os.makedirs('metrics', exist_ok=True)
+        folder = 'metrics-wla-dpop-50-4'
+        os.makedirs(folder, exist_ok=True)
         building_ids = list(self.buildings_temp.keys())
         for agt in self.agent_values:
             data = {
@@ -84,5 +85,5 @@ class CenterAgent(object):
                     data[f't-{i}'].append(temp)
 
             df = pd.DataFrame(data)
-            df.to_csv(f'metrics/Agent-{agt}.csv', index=False)
+            df.to_csv(f'{folder}/Agent-{agt}.csv', index=False)
 
