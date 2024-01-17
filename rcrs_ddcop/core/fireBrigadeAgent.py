@@ -426,7 +426,7 @@ class FireBrigadeAgent(Agent):
         # get entity from context (given world)
         entity = context.get_entity(EntityID(selected_value))
 
-        # reduce banding together and exclude beyond buildings based on fieryness
+        # reduce banding together and exclude buildings based on fieryness
         if entity.get_fieryness() > Fieryness.BURNING_SEVERELY or num_assigned > 3:
             return 10000.
 
