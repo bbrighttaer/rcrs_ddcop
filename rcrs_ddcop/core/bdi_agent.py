@@ -110,7 +110,7 @@ class BDIAgent(object):
 
         # check and create trajectory
         if time_step % self.trajectory_len == 0:
-            # exp_keys = self.experience_buffer.add(trajectory=self._partial_traj)
+            exp_keys = self.experience_buffer.add(trajectory=self._partial_traj)
             self._partial_traj = []
             self.past_states.clear()
             self.past_states.append(state)
