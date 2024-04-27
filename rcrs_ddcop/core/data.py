@@ -134,7 +134,6 @@ def get_building_fire_index(building: Building, world_model: WorldModel):
         if isinstance(entity, Building):
             neighbor_temps.append(entity.get_temperature())
     val = max(neighbor_temps) if neighbor_temps else 0.
-    print(f'building index: {val}')
     return val
 
 

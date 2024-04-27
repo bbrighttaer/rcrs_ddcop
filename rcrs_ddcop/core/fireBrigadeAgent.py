@@ -462,8 +462,6 @@ class FireBrigadeAgent(Agent):
         :return: cost
         """
         cost = 0.
-        if self.agent_id == 2033584105:
-            print()
 
         # get value of this agent
         agent_selected_value = agent_vals.pop(self.agent_id.get_value())
