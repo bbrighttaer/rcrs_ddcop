@@ -11,7 +11,7 @@ locally.
 ## Agent Communication
 The communication layer used by the agents in the experiments rely on the
 AMQP RabbitMQ broker. Follow the [official installation guide](https://www.rabbitmq.com/docs/download)
-to set the broker up locally. We found it easier to use the Docker image for our experiments. 
+to set the broker up locally. We found it easier to use the Docker image of RabbitMQ for our experiments. 
 We used the [Python client library (Pika)](https://www.rabbitmq.com/tutorials/tutorial-one-python)
 in this repo.
 
