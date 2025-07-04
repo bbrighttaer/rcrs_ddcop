@@ -72,7 +72,7 @@ class BDIAgent(object):
         self.dcop = DPOP(
             self, self.on_value_selected,
             label=f'{agent.name}_{agent.seq_id}',
-            look_ahead_steps=0,
+            look_ahead_steps=-1, # use -1 for pretraining models, 0 for D-DCOP, > 0 for PD-DCOP using pretrained models
             past_window_size=self.past_window_size,
         )
 
@@ -169,7 +169,7 @@ class BDIAgent(object):
     def on_value_selected(self, value, *args, **kwargs):
         self._value = value
         self._value_selection_evt.set()
-        self.comm.send_metrics_message(
+        self.comm.send_building_metrics_message(
             value=value,
             temperature=self._rcrs_agent.get_building_temperature(value),
         )

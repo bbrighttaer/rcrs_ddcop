@@ -44,6 +44,7 @@ class DCOP:
             label=self.label + f'-cocoa',
             experience_buffer=self.agent.experience_buffer,
             log=self.log,
+            comm=self.comm,
             input_dim=5,
             past_window_size=self.past_window_size,
             future_window_size=1,

@@ -1,7 +1,7 @@
 import os
 from collections import defaultdict
 import pandas as pd
-from rcrs_ddcop.comm import CommProtocol
+from rcrs_ddcop.comm import CommProtocol, messaging
 from rcrs_ddcop.comm.pseudo_com import AgentPseudoComm
 
 
@@ -44,18 +44,26 @@ class CenterAgent(object):
     def handle_message(self, message):
         self.log.info(f'Received metrics message: {message}')
         message_time_step = message['time_step']
+        msg_type = message['type']
         message = message['payload']
         sender = message['agent_id']
-        value = message['value']
-        temperature = message['temperature']
 
-        # record the highest temperature
-        b_temps = self.buildings_temp[value]
-        if temperature > b_temps[message_time_step]:
-            b_temps[message_time_step] = temperature
+        match msg_type:
+            case messaging.AgentMsgTypes.BUILDING_METRICS:
+                # retrieve message details
+                value = message['value']
+                temperature = message['temperature']
 
-        # record agent value
-        self.agent_values[sender][message_time_step] = value
+                # record the highest temperature
+                b_temps = self.buildings_temp[value]
+                if temperature > b_temps[message_time_step]:
+                    b_temps[message_time_step] = temperature
+
+                # record agent value
+                self.agent_values[sender][message_time_step] = value
+
+            case messaging.AgentMsgTypes.TRAINING_METRICS:
+                print(message)
 
     def __call__(self, *args, **kwargs):
         self.log.info(f'Initializing center agent {self.agent_id}')
@@ -64,7 +72,7 @@ class CenterAgent(object):
         self.log.info(f'Center agent {self.agent_id} is shutting down.')
 
     def save_metrics_to_file(self):
-        folder = 'metrics-wla-dpop-50-4'
+        folder = 'test-run' # 'metrics-wla-dpop-50-4'
         os.makedirs(folder, exist_ok=True)
         building_ids = list(self.buildings_temp.keys())
         for agt in self.agent_values:

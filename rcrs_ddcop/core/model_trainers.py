@@ -1,4 +1,5 @@
 import math
+from functools import partial
 from typing import Tuple
 
 import joblib
@@ -299,7 +300,7 @@ class XGBTrainer:
     Trains an XGBoost model
     """
 
-    def __init__(self, label: str, experience_buffer: ExperienceBuffer, log: Logger, input_dim: int,
+    def __init__(self, label: str, experience_buffer: ExperienceBuffer, log: Logger, input_dim: int, comm,
                  past_window_size: int, future_window_size: int, trajectory_len, rounds: int = 100, load_models=False):
         self.trajectory_len = trajectory_len
         self.label = label
@@ -328,6 +329,7 @@ class XGBTrainer:
         self.has_trained = False
         self.can_train = True
         self.batch_sz = 700
+        self.comm = comm
 
         if load_models:
             self.load_model()
@@ -348,6 +350,11 @@ class XGBTrainer:
 
     def write_to_tf_board(self, name, t, val):
         self.writer.add_scalars(name, {self.label: val}, t)
+
+    def on_training_step_completed(self, **kwargs):
+        self.comm.threadsafe_execution(
+            partial(self.comm.send_training_metrics_message, step=self.count, **kwargs)
+        )
 
     def __enter__(self):
         self.is_training = True
@@ -447,6 +454,11 @@ class ModelCheckpointCallback(TrainingCallback):
         if r2_val > self._trainer.best_score:
             self._trainer.best_score = r2_val
             self._trainer.best_model_config = model.save_config()
+
+        self._trainer.on_training_step_completed(**{
+            'training': {'r2': evals_log['train']['r2'][-1], 'rmse': evals_log['train']['rmse'][-1]},
+            'val': {'r2': r2_val, 'rmse': rmse}
+        })
 
         # report to tensorboard
         self._trainer.writer.add_scalars('r2', {self._trainer.label: r2_val}, self._trainer.count)

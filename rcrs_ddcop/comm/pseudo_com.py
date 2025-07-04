@@ -281,10 +281,19 @@ class AgentPseudoComm(object):
             })
         )
 
-    def send_metrics_message(self, **kwargs):
+    def send_building_metrics_message(self, **kwargs):
         self.send_to_agent(
             agent_id='metrics-agent',
-            body=messaging.create_metrics_message({
+            body=messaging.create_building_metrics_message({
+                'agent_id': self.agent_id,
+                **kwargs,
+            })
+        )
+
+    def send_training_metrics_message(self, **kwargs):
+        self.send_to_agent(
+            agent_id='metrics-agent',
+            body=messaging.create_training_metrics_message({
                 'agent_id': self.agent_id,
                 **kwargs,
             })

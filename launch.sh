@@ -3,7 +3,7 @@ fire_agents=12
 ambulance_agents=0
 police_police_offices=0
 ambulance_centers=0
-fire_stations=0
+fire_stations=1
 precompute=False
 
 
