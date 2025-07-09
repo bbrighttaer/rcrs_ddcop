@@ -1,4 +1,6 @@
 import math
+import os
+from collections import defaultdict
 from functools import partial
 from typing import Tuple
 
@@ -319,7 +321,7 @@ class XGBTrainer:
         self.experience_buffer = experience_buffer
         self.log = log
         self.writer = SummaryWriter()
-        self.count = 0
+        self.count = -1
         self.normalizer = None
         self.best_model_config = None
         self.best_score = float('-inf')
@@ -330,6 +332,7 @@ class XGBTrainer:
         self.can_train = True
         self.batch_sz = 700
         self.comm = comm
+        self.model_metrics = defaultdict(list)
 
         if load_models:
             self.load_model()
@@ -351,10 +354,21 @@ class XGBTrainer:
     def write_to_tf_board(self, name, t, val):
         self.writer.add_scalars(name, {self.label: val}, t)
 
-    def on_training_step_completed(self, **kwargs):
+    def on_training_step_completed(self, metrics):
         self.comm.threadsafe_execution(
-            partial(self.comm.send_training_metrics_message, step=self.count, **kwargs)
+            partial(self.comm.send_training_metrics_message, step=self.count, **metrics)
         )
+        for phase in ['training', 'val']:
+            for metric in metrics[phase]:
+                self.model_metrics[f'{phase}-{metric}'].append(metrics[phase][metric])
+
+        # training_metrics_folder = 'model-training-metrics'
+        # os.makedirs(training_metrics_folder, exist_ok=True)
+        # if self.count % 100 == 0:
+        #     df = pd.DataFrame(self.model_metrics)
+        #     df.to_csv(f'{training_metrics_folder}/{self.label}.csv', index=False)
+
+
 
     def __enter__(self):
         self.is_training = True
@@ -415,6 +429,7 @@ class XGBTrainer:
                 model.load_config(self.best_model_config)
                 self._model = model
                 self.normalizer = normalizer
+                os.makedirs('models', exist_ok=True)
                 model.save_model(f'models/{self.label}_model.json')
                 joblib.dump(self.normalizer, f'models/{self.label}_scaler.bin')
 
@@ -449,20 +464,20 @@ class ModelCheckpointCallback(TrainingCallback):
         self._trainer = trainer
 
     def after_iteration(self, model: _Model, epoch: int, evals_log) -> bool:
+        self._trainer.count += 1
         r2_val = evals_log['val']['r2'][-1]
         rmse = evals_log['val']['rmse'][-1]
         if r2_val > self._trainer.best_score:
             self._trainer.best_score = r2_val
             self._trainer.best_model_config = model.save_config()
 
-        self._trainer.on_training_step_completed(**{
+        self._trainer.on_training_step_completed({
             'training': {'r2': evals_log['train']['r2'][-1], 'rmse': evals_log['train']['rmse'][-1]},
-            'val': {'r2': r2_val, 'rmse': rmse}
+            'val': {'r2': evals_log['val']['r2'][-1], 'rmse': evals_log['val']['rmse'][-1]}
         })
 
         # report to tensorboard
         self._trainer.writer.add_scalars('r2', {self._trainer.label: r2_val}, self._trainer.count)
         self._trainer.writer.add_scalars('rmse', {self._trainer.label: rmse}, self._trainer.count)
-        self._trainer.count += 1
 
         return False

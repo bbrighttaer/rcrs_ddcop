@@ -14,11 +14,17 @@ class CenterAgent(object):
         self.belief = agent.world_model
         self._terminate = False
         self.log = agent.Log
+        self.metrics_folder = 'run-4'
 
         # initialise building temps
         self.buildings_temp = {}
         for building in self._rcrs_agent.buildings:
             self.buildings_temp[building.get_id().get_value()] = defaultdict(int)
+
+        # model metrics
+        self.model_metrics = defaultdict(lambda: {
+            'step':[], 'tr-rmse': [], 'tr-r2': [], 'val-rmse': [], 'val-r2': []
+        })
 
         self.agent_values = defaultdict(lambda: defaultdict(int))
 
@@ -42,7 +48,7 @@ class CenterAgent(object):
         return self._rcrs_agent.urn
 
     def handle_message(self, message):
-        self.log.info(f'Received metrics message: {message}')
+        # self.log.info(f'Received metrics message: {message}')
         message_time_step = message['time_step']
         msg_type = message['type']
         message = message['payload']
@@ -63,7 +69,12 @@ class CenterAgent(object):
                 self.agent_values[sender][message_time_step] = value
 
             case messaging.AgentMsgTypes.TRAINING_METRICS:
-                print(message)
+                agt_model_metrics = self.model_metrics[sender]
+                agt_model_metrics['step'].append(message['step'])
+                agt_model_metrics['tr-rmse'].append(message['training']['rmse'])
+                agt_model_metrics['tr-r2'].append(message['training']['r2'])
+                agt_model_metrics['val-rmse'].append(message['val']['rmse'])
+                agt_model_metrics['val-r2'].append(message['val']['r2'])
 
     def __call__(self, *args, **kwargs):
         self.log.info(f'Initializing center agent {self.agent_id}')
@@ -71,9 +82,8 @@ class CenterAgent(object):
             self.comm.listen_to_network()
         self.log.info(f'Center agent {self.agent_id} is shutting down.')
 
-    def save_metrics_to_file(self):
-        folder = 'test-run' # 'metrics-wla-dpop-50-4'
-        os.makedirs(folder, exist_ok=True)
+    def save_building_metrics_to_file(self):
+        os.makedirs(self.metrics_folder, exist_ok=True)
         building_ids = list(self.buildings_temp.keys())
         for agt in self.agent_values:
             data = {
@@ -93,5 +103,11 @@ class CenterAgent(object):
                     data[f't-{i}'].append(temp)
 
             df = pd.DataFrame(data)
-            df.to_csv(f'{folder}/Agent-{agt}.csv', index=False)
+            df.to_csv(f'{self.metrics_folder}/Agent-{agt}.csv', index=False)
 
+    def save_model_metrics_to_file(self):
+        os.makedirs(self.metrics_folder, exist_ok=True)
+        for agt, agt_model_metrics in self.model_metrics.items():
+            df = pd.DataFrame(agt_model_metrics)
+            df.sort_values('step', inplace=True)
+            df.to_csv(f'{self.metrics_folder}/Agent-{agt}-model-metrics.csv', index=False)

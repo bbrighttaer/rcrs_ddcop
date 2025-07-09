@@ -65,5 +65,6 @@ class FireStationAgent(Agent):
     def think(self, timestep, change_set, heard):
         self.current_time_step = timestep
         if timestep % 10 == 0:
-            self.center_agent.save_metrics_to_file()
+            self.center_agent.save_building_metrics_to_file()
+            self.center_agent.save_model_metrics_to_file()
 
